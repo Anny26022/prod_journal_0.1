@@ -22,14 +22,14 @@ export interface PriceTicksResponse {
 }
 
 /**
- * Gets today's market open time (9:15 AM IST)
+ * Gets today's market open time (9:08 AM IST)
  * @returns Date object set to today's market open
  */
 export const getTodayMarketOpen = (): Date => {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  // Market opens at 9:15 AM IST (UTC+5:30)
-  today.setHours(9, 15, 0, 0);
+  // Market opens at 9:08 AM IST (UTC+5:30)
+  today.setHours(9, 8, 0, 0);
   return today;
 };
 
@@ -46,21 +46,24 @@ export const getTodayMarketClose = (): Date => {
 };
 
 /**
- * Checks if the market is currently open
+ * Checks if the market is currently open based on the specified hours (9:08 AM to 3:30 PM IST)
  * @returns boolean indicating if market is open
  */
 export const isMarketOpen = (): boolean => {
   const now = new Date();
   const day = now.getDay();
   
-  // Market is open Monday to Friday
-  if (day === 0 || day === 6) return false; // Sunday (0) or Saturday (6)
+  // Market is open Monday (1) to Friday (5)
+  if (day === 0 || day === 6) return false; // Sunday (0) or Saturday (6) are always closed
   
   const hours = now.getHours();
   const minutes = now.getMinutes();
   
-  // Market hours: 9:15 AM to 3:30 PM IST
-  if (hours < 9 || (hours === 9 && minutes < 15) || hours > 15 || (hours === 15 && minutes > 30)) {
+  // Market hours: 9:08 AM to 3:30 PM IST
+  if (hours < 9 || (hours === 9 && minutes < 8)) {
+    return false;
+  }
+  if (hours > 15 || (hours === 15 && minutes > 30)) {
     return false;
   }
   
@@ -123,39 +126,39 @@ export const fetchPriceTicks = async (
   try {
     const now = getCurrentISTDate();
     
-    // Don't make API calls on weekends
-    if (isWeekend(now)) {
-      // If it's Saturday or Sunday, return the stored Friday close price if available
-      if (fridayClosePrice !== null && lastFridayDate) {
-        const friday = getLastFriday();
-        if (isSameDayIST(friday, lastFridayDate)) {
-          const fridayCloseTime = new Date(friday);
-          fridayCloseTime.setHours(15, 30, 0, 0);
-          
-          return {
-            data: {
-              statistic: 0,
-              count: 1,
-              fields: ['dateTime', 'open', 'high', 'low', 'close', 'volume', 'dayVolume'],
-              ticks: {
-                [symbol]: [
-                  [
-                    fridayCloseTime.toISOString(),
-                    fridayClosePrice,
-                    fridayClosePrice,
-                    fridayClosePrice,
-                    fridayClosePrice,
-                    0,
-                    0
-                  ]
-                ]
-              }
-            }
-          };
-        }
-      }
-      throw new Error('Market is closed on weekends');
-    }
+    // Removed check to prevent API calls on weekends or outside market hours
+    // if (isWeekend(now)) {
+    //   // If it's Saturday or Sunday, return the stored Friday close price if available
+    //   if (fridayClosePrice !== null && lastFridayDate) {
+    //     const friday = getLastFriday();
+    //     if (isSameDayIST(friday, lastFridayDate)) {
+    //       const fridayCloseTime = new Date(friday);
+    //       fridayCloseTime.setHours(15, 30, 0, 0);
+            
+    //       return {
+    //         data: {
+    //           statistic: 0,
+    //           count: 1,
+    //           fields: ['dateTime', 'open', 'high', 'low', 'close', 'volume', 'dayVolume'],
+    //           ticks: {
+    //             [symbol]: [
+    //               [
+    //                 fridayCloseTime.toISOString(),
+    //                 fridayClosePrice,
+    //                 fridayClosePrice,
+    //                 fridayClosePrice,
+    //                 fridayClosePrice,
+    //                 0,
+    //                 0
+    //               ]
+    //             ]
+    //           }
+    //         }
+    //       };
+    //     }
+    //   }
+    //   throw new Error('Market is closed on weekends');
+    // }
 
     // Format dates to match the required API format (YYYY-MM-DDTHH:mm:ss+05:30)
     const formatForApi = (date: Date) => {
@@ -165,10 +168,13 @@ export const fetchPriceTicks = async (
     };
 
     // Ensure we're only fetching for the current date
+    // The API might still only return data for market hours depending on its implementation
     const marketClose = getTodayMarketClose();
     
     // If after market close, use market close time
-    const endTime = now > marketClose ? marketClose : now;
+    // Removed the check to always use current time for 'to' date
+    // const endTime = now > marketClose ? marketClose : now;
+    const endTime = new Date();
     
     const from = formatForApi(fromDate);
     const to = formatForApi(endTime);
@@ -192,6 +198,7 @@ export const fetchPriceTicks = async (
     const data = await response.json();
     
     // Store Friday's close price if today is Friday and market is closed
+    // This logic is still relevant for potential caching but won't prevent calls
     if (isFriday(now) && now > marketClose) {
       const ticks = data.data.ticks[symbol];
       if (ticks && ticks.length > 0) {

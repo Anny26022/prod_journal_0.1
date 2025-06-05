@@ -12,9 +12,19 @@ import {
 import { motion } from "framer-motion";
 import { Trade } from "../../types/trade";
 import { usePortfolio } from "../../utils/PortfolioContext";
+import { useCapitalChanges } from "../../hooks/use-capital-changes";
+
+export interface ChartDataPoint {
+  month: string;
+  capital: number;
+  pl: number;
+  plPercentage: number;
+  startingCapital?: number;
+}
 
 interface PerformanceChartProps {
   trades: Trade[];
+  onDataUpdate?: (data: ChartDataPoint[]) => void;
 }
 
 function getMonthYear(dateStr: string) {
@@ -22,51 +32,56 @@ function getMonthYear(dateStr: string) {
   return `${d.toLocaleString('default', { month: 'short' })} ${d.getFullYear()}`;
 }
 
-export const PerformanceChart: React.FC<PerformanceChartProps> = ({ trades }) => {
-  const { portfolioSize } = usePortfolio();
-  // Group trades by month
-  let capital = portfolioSize;
-  const monthlyMap: Record<string, { pl: number; trades: Trade[] }> = {};
-  trades.forEach(trade => {
-    const key = getMonthYear(trade.date);
-    if (!monthlyMap[key]) monthlyMap[key] = { pl: 0, trades: [] };
-    monthlyMap[key].pl += trade.plRs || 0;
-    monthlyMap[key].trades.push(trade);
-  });
-  // Sort months chronologically
-  const months = Object.keys(monthlyMap).sort((a, b) => new Date(monthlyMap[a].trades[0].date).getTime() - new Date(monthlyMap[b].trades[0].date).getTime());
-  const chartData = months.map(month => {
-    const pl = monthlyMap[month].pl;
-    capital += pl;
-    return {
-      month,
-      capital,
-      pl,
-      plPercentage: ((pl / (capital - pl)) * 100) || 0
-    };
-  });
+export const PerformanceChart: React.FC<PerformanceChartProps> = (props) => {
+  const { trades, onDataUpdate } = props;
+  const { getPortfolioSize } = usePortfolio();
+  const { monthlyCapital, capitalChanges } = useCapitalChanges(trades, 0);
+  
+  // Get the earliest and latest trade dates to determine the date range
+  const sortedTrades = [...trades].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const startDate = sortedTrades[0]?.date ? new Date(sortedTrades[0].date) : new Date();
+  const endDate = trades.length > 0 ? new Date(trades[trades.length - 1].date) : new Date();
+  
+  // Use monthlyCapital data which already accounts for capital changes and P/L
+  const processedChartData = monthlyCapital.map(monthData => ({
+    month: `${monthData.month} ${monthData.year}`,
+    capital: monthData.finalCapital,
+    pl: monthData.pl,
+    startingCapital: monthData.startingCapital,
+    plPercentage: monthData.startingCapital !== 0 ? (monthData.pl / monthData.startingCapital) * 100 : 0
+  }));
+  
+  // Notify parent component about data update
+  React.useEffect(() => {
+    if (onDataUpdate && processedChartData.length > 0) {
+      onDataUpdate(processedChartData);
+    }
+  }, [processedChartData, onDataUpdate]);
 
-  // Drawdown calculation
-  let runningMax = portfolioSize;
-  const drawdownData = chartData.map((d) => {
-    if (d.capital > runningMax) runningMax = d.capital;
-    const drawdown = runningMax !== 0 ? ((runningMax - d.capital) / runningMax) * 100 : 0;
-    return { ...d, drawdown };
-  });
-
-  // Volatility calculation (rolling std dev of % P/L, 3-month window)
-  function rollingStd(arr: number[], window: number) {
-    return arr.map((_, i) => {
-      if (i < window - 1) return 0;
-      const slice = arr.slice(i - window + 1, i + 1);
-      const mean = slice.reduce((a, b) => a + b, 0) / window;
-      const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / window;
-      return Math.sqrt(variance);
+  // Recalculate Drawdown and Volatility based on processedChartData
+  const drawdownData = React.useMemo(() => {
+    let runningMax = processedChartData[0]?.startingCapital || 0;
+    return processedChartData.map((d) => {
+      if (d.capital > runningMax) runningMax = d.capital;
+      const drawdown = runningMax !== 0 ? ((runningMax - d.capital) / runningMax) * 100 : 0;
+      return { ...d, drawdown };
     });
-  }
-  const plPercentages = chartData.map(d => d.plPercentage);
-  const volatilityArr = rollingStd(plPercentages, 3);
-  const volatilityData = chartData.map((d, i) => ({ ...d, volatility: volatilityArr[i] }));
+  }, [processedChartData]);
+  
+  const volatilityData = React.useMemo(() => {
+    function rollingStd(arr: number[], window: number) {
+      return arr.map((_, i) => {
+        if (i < window - 1) return 0;
+        const slice = arr.slice(i - window + 1, i + 1);
+        const mean = slice.reduce((a, b) => a + b, 0) / window;
+        const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / window;
+        return Math.sqrt(variance);
+      });
+    }
+    const plPercentages = processedChartData.map(d => d.plPercentage);
+    const volatilityArr = rollingStd(plPercentages, 3);
+    return processedChartData.map((d, i) => ({ ...d, volatility: volatilityArr[i] }));
+  }, [processedChartData]);
 
   const [activeView, setActiveView] = React.useState<'capital' | 'percentage' | 'drawdown' | 'volatility'>('capital');
   
@@ -116,7 +131,7 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({ trades }) =>
       <ResponsiveContainer width="100%" height="100%">
         {activeView === "capital" ? (
           <AreaChart
-            data={chartData}
+            data={processedChartData}
             margin={{ top: 10, right: 30, left: 30, bottom: 30 }}
           >
             <defs>
@@ -164,7 +179,7 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({ trades }) =>
           </AreaChart>
         ) : activeView === "percentage" ? (
           <AreaChart
-            data={chartData}
+            data={processedChartData}
             margin={{ top: 10, right: 30, left: 30, bottom: 30 }}
           >
             <defs>

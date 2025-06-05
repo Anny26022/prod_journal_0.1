@@ -15,6 +15,7 @@ import { GlobalFilterProvider, useGlobalFilter } from "./context/GlobalFilterCon
 import { GlobalFilterBar } from "./components/GlobalFilterBar";
 import { TradeTrackerLogo } from './components/icons/TradeTrackerLogo';
 import { AnimatedBrandName } from './components/AnimatedBrandName';
+import DeepAnalyticsPage from "./pages/DeepAnalyticsPage";
 
 export default function App() {
   const location = useLocation();
@@ -66,7 +67,8 @@ export default function App() {
     { path: "/", name: "Journal", icon: "lucide:book-open" },
     { path: "/analytics", name: "Analytics", icon: "lucide:bar-chart-2" },
     { path: "/tax-analytics", name: "Tax Analytics", icon: "lucide:calculator" },
-    { path: "/monthly-performance", name: "Monthly Performance", icon: "lucide:calendar-check" }
+    { path: "/monthly-performance", name: "Monthly Performance", icon: "lucide:calendar-check" },
+    { path: "/deep-analytics", name: "Deep Analytics", icon: "lucide:pie-chart" }
   ];
 
   return (
@@ -125,11 +127,10 @@ export default function App() {
                     variant="flat"
                     size="sm"
                     onPress={() => setIsProfileOpen(true)}
-                    className="hidden sm:flex items-center gap-2"
+                    className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-md border border-primary-200 bg-background/60 hover:bg-background/80 min-h-0 min-w-0"
                     startContent={<Icon icon="lucide:user" className="h-4 w-4" />}
                   >
-                    <span className="font-medium">John Trader</span>
-                    <span className="text-xs text-foreground/60">Pro Account</span>
+                    <span className="font-medium text-sm leading-none">Aniket Mahato</span>
                   </Button>
                 </div>
               </div>
@@ -218,6 +219,7 @@ export default function App() {
                   <Route path="/analytics" component={TradeAnalytics} />
                   <Route path="/tax-analytics" component={TaxAnalytics} />
                   <Route path="/monthly-performance" component={MonthlyPerformanceTable} />
+                  <Route path="/deep-analytics" component={DeepAnalyticsPage} />
                 </Switch>
               </motion.div>
             </AnimatePresence>

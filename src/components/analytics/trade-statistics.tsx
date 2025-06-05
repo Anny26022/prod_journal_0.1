@@ -3,6 +3,7 @@ import { Tooltip, Input } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Trade } from "../../types/trade";
+import { calcWeightedRewardRisk } from '../../utils/tradeCalculations';
 
 interface StatProps {
   label: string;
@@ -115,6 +116,7 @@ export const TradeStatistics: React.FC<TradeStatisticsProps> = ({ trades }) => {
   const avgLoss = lossTrades.length > 0 ? lossTrades.reduce((sum, t) => sum + (t.stockMove || 0), 0) / lossTrades.length : 0;
   const avgPositionSize = totalTrades > 0 ? trades.reduce((sum, t) => sum + (t.allocation || 0), 0) / totalTrades : 0;
   const avgHoldingDays = totalTrades > 0 ? trades.reduce((sum, t) => sum + (t.holdingDays || 0), 0) / totalTrades : 0;
+  const avgR = totalTrades > 0 ? trades.reduce((sum, t) => sum + calcWeightedRewardRisk(t), 0) / totalTrades : 0;
 
   return (
     <div className="space-y-2">
@@ -151,6 +153,12 @@ export const TradeStatistics: React.FC<TradeStatisticsProps> = ({ trades }) => {
         value={avgHoldingDays.toFixed(2)}
         tooltip="Average number of days positions are held"
         index={4}
+      />
+      <Stat 
+        label="Avg R:R" 
+        value={avgR.toFixed(2)}
+        tooltip="Average reward-to-risk ratio across all trades (weighted, matches dashboard logic)"
+        index={5}
       />
     </div>
   );

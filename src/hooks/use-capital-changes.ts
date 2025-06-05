@@ -1,8 +1,10 @@
 import React from 'react';
-import { CapitalChange, MonthlyCapital } from '../types/trade';
+import { CapitalChange, MonthlyCapital, MonthlyCapitalHistory } from '../types/trade';
 import { generateId } from '../utils/helpers';
+import { usePortfolio } from '../utils/PortfolioContext';
 
 const CAPITAL_CHANGES_STORAGE_KEY = 'capital_changes';
+const MONTHLY_CAPITAL_HISTORY_KEY = 'monthly_capital_history';
 
 const loadCapitalChanges = (): CapitalChange[] => {
   if (typeof window === 'undefined') return [];
@@ -16,14 +18,42 @@ const loadCapitalChanges = (): CapitalChange[] => {
   }
 };
 
-export const useCapitalChanges = (trades: any[], portfolioSize: number) => {
+const loadMonthlyCapitalHistory = (): MonthlyCapitalHistory[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const saved = localStorage.getItem(MONTHLY_CAPITAL_HISTORY_KEY);
+    return saved ? JSON.parse(saved) : [];
+  } catch (error) {
+    console.error('Error loading monthly capital history from localStorage:', error);
+    return [];
+  }
+};
+
+const saveMonthlyCapitalHistory = (history: MonthlyCapitalHistory[]) => {
+  try {
+    localStorage.setItem(MONTHLY_CAPITAL_HISTORY_KEY, JSON.stringify(history));
+  } catch (error) {
+    console.error('Error saving monthly capital history to localStorage:', error);
+  }
+};
+
+export const useCapitalChanges = (trades: any[], initialPortfolioSize: number) => {
+  const { getPortfolioSize, setPortfolioSize, monthlyPortfolioSizes } = usePortfolio();
+  
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
   const [capitalChanges, setCapitalChanges] = React.useState<CapitalChange[]>([]);
   const [monthlyCapital, setMonthlyCapital] = React.useState<MonthlyCapital[]>([]);
+  const [monthlyCapitalHistory, setMonthlyCapitalHistory] = React.useState<MonthlyCapitalHistory[]>([]);
 
-  // Load capital changes from localStorage
+  // Load capital changes and monthly capital history from localStorage
   React.useEffect(() => {
     const loadedChanges = loadCapitalChanges();
     setCapitalChanges(loadedChanges);
+    const loadedHistory = loadMonthlyCapitalHistory();
+    setMonthlyCapitalHistory(loadedHistory);
   }, []);
 
   // Save capital changes to localStorage
@@ -37,111 +67,245 @@ export const useCapitalChanges = (trades: any[], portfolioSize: number) => {
     }
   }, [capitalChanges]);
 
-  // Calculate monthly capital data
+  // Save monthly capital history to localStorage
   React.useEffect(() => {
-    // Group trades and capital changes by month
-    const monthlyData: Record<string, {
-      trades: any[];
-      changes: CapitalChange[];
-      date: Date;
-    }> = {};
+    saveMonthlyCapitalHistory(monthlyCapitalHistory);
+  }, [monthlyCapitalHistory]);
 
-    // Process trades
+    // Calculate monthly capital data
+  React.useEffect(() => {
+    if (!getPortfolioSize) return;
+    
+    // Group trades and capital changes by month and year
+    const monthlyData: Record<string, { trades: any[]; changes: CapitalChange[]; date: Date; monthName: string; year: number }> = {};
+
+    // Determine the overall date range from trades and monthly portfolio sizes
+    let earliestDate: Date | null = null;
+    let latestDate: Date | null = null;
+
     trades.forEach(trade => {
       const date = new Date(trade.date);
-      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      if (!earliestDate || date < earliestDate) earliestDate = date;
+      if (!latestDate || date > latestDate) latestDate = date;
+    });
+
+    capitalChanges.forEach(change => {
+      const date = new Date(change.date);
+      if (!earliestDate || date < earliestDate) earliestDate = date;
+      if (!latestDate || date > latestDate) latestDate = date;
+    });
+
+    // Include dates from monthlyPortfolioSizes
+    monthlyPortfolioSizes.forEach(monthlySize => {
+      const date = new Date(monthlySize.year, months.indexOf(monthlySize.month), 1);
+      if (!earliestDate || date < earliestDate) earliestDate = date;
+      if (!latestDate || date > latestDate) latestDate = date;
+    });
+
+    if (!earliestDate || !latestDate) {
+      setMonthlyCapital([]);
+      return;
+    }
+
+    // Process trades and capital changes into monthly groups
+    const getMonthKey = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      return `${year}-${month}`;
+    };
+
+    trades.forEach(trade => {
+      const date = new Date(trade.date);
+      const key = getMonthKey(date);
       if (!monthlyData[key]) {
-        monthlyData[key] = { trades: [], changes: [], date };
+        monthlyData[key] = { trades: [], changes: [], date: new Date(date.getFullYear(), date.getMonth(), 1), monthName: date.toLocaleString('default', { month: 'short' }), year: date.getFullYear() };
       }
       monthlyData[key].trades.push(trade);
     });
 
-    // Process capital changes
     capitalChanges.forEach(change => {
       const date = new Date(change.date);
-      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const key = getMonthKey(date);
       if (!monthlyData[key]) {
-        monthlyData[key] = { trades: [], changes: [], date };
+        monthlyData[key] = { trades: [], changes: [], date: new Date(date.getFullYear(), date.getMonth(), 1), monthName: date.toLocaleString('default', { month: 'short' }), year: date.getFullYear() };
       }
       monthlyData[key].changes.push(change);
     });
 
-    // Sort months chronologically
-    const sortedMonths = Object.keys(monthlyData).sort();
+    // Generate data for every month in the date range
+    const monthlyCapitalData: MonthlyCapital[] = [];
+    let currentCapital = initialPortfolioSize; // Start with initial capital
 
-    // Find the first month with a trade
-    const firstTradeMonthKey = sortedMonths.find(key => monthlyData[key].trades.length > 0);
-    let runningCapital = portfolioSize;
-    if (firstTradeMonthKey) {
-      // Sum all deposits/withdrawals before the first trade month
-      const firstTradeDate = monthlyData[firstTradeMonthKey].date;
-      const priorChanges = capitalChanges.filter(c => new Date(c.date) < firstTradeDate);
-      const priorDeposits = priorChanges.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
-      const priorWithdrawals = priorChanges.filter(c => c.type === 'withdrawal').reduce((sum, c) => sum + Math.abs(c.amount), 0);
-      runningCapital = portfolioSize + priorDeposits - priorWithdrawals;
-    }
+    const cursorDate = new Date(earliestDate.getFullYear(), earliestDate.getMonth(), 1);
+    
+    // Add an initial data point for the starting capital of the very first month
+    const firstMonthName = earliestDate.toLocaleString('default', { month: 'short' });
+    const firstYear = earliestDate.getFullYear();
+    const initialStartingCapitalForChart = getPortfolioSize(firstMonthName, firstYear);
+    monthlyCapitalData.push({
+      month: firstMonthName,
+      year: firstYear,
+      startingCapital: initialStartingCapitalForChart, // Capital at the absolute start of the first month
+      deposits: 0, // No changes at the very start point
+      withdrawals: 0,
+      pl: 0,
+      finalCapital: initialStartingCapitalForChart // Final capital is the same as starting at this point
+    });
 
-    const monthlyCapitalData = sortedMonths.map(monthKey => {
-      const { trades, changes, date } = monthlyData[monthKey];
-      // Calculate deposits and withdrawals for this month
-      const deposits = changes
-        .filter(c => c.type === 'deposit')
-        .reduce((sum, c) => sum + c.amount, 0);
-      const withdrawals = changes
-        .filter(c => c.type === 'withdrawal')
-        .reduce((sum, c) => sum + Math.abs(c.amount), 0);
+    while (cursorDate <= latestDate) {
+      const monthKey = getMonthKey(cursorDate);
+      const monthName = cursorDate.toLocaleString('default', { month: 'short' });
+      const year = cursorDate.getFullYear();
 
-      // For months with no trades, starting capital is zero
-      let startingCapital = 0;
-      if (trades.length > 0) {
-        // Apply deposits/withdrawals BEFORE calculating starting capital for the month
-        runningCapital = runningCapital + deposits - withdrawals;
-        startingCapital = runningCapital;
+      const monthData = monthlyData[monthKey] || { trades: [], changes: [], date: new Date(year, cursorDate.getMonth(), 1), monthName, year };
+
+      // Get the explicit portfolio size for this month if set
+      const explicitMonthlySize = getPortfolioSize(monthName, year);
+
+      // Determine starting capital for the month
+      let startingCapital: number;
+      // If an explicit monthly size is set for THIS month, use it.
+      // We check if the explicit size is different from the default/initial size
+      // to determine if a user-set value exists for this specific month.
+      if (explicitMonthlySize !== initialPortfolioSize) { // Compare with the hook's initialPortfolioSize parameter
+        startingCapital = explicitMonthlySize;
       } else {
-        // Still update runningCapital for months with only capital changes
-        runningCapital = runningCapital + deposits - withdrawals;
+        // Otherwise, carry over the final capital from the previous month.
+        startingCapital = currentCapital;
       }
 
-      // Calculate P/L
-      const pl = trades.reduce((sum, t) => sum + (t.plRs || 0), 0);
+      // Calculate deposits and withdrawals
+      const deposits = monthData.changes.filter(c => c.type === 'deposit').reduce((sum, c) => sum + c.amount, 0);
+      const withdrawals = monthData.changes.filter(c => c.type === 'withdrawal').reduce((sum, c) => sum + Math.abs(c.amount), 0);
+      const netChange = deposits - withdrawals;
 
-      // Update running capital after P/L (only if there are trades)
-      if (trades.length > 0) {
-        runningCapital = runningCapital + pl;
-      }
+      // Calculate P/L from trades
+      const pl = monthData.trades.reduce((sum, t) => sum + (t.plRs || 0), 0);
 
-      return {
-        month: date.toLocaleString('default', { month: 'short' }),
-        year: date.getFullYear(),
-        startingCapital,
+      // Calculate final capital for the month
+      const finalCapital = startingCapital + netChange + pl;
+
+      monthlyCapitalData.push({
+        month: monthName,
+        year,
+        startingCapital: startingCapital, // Starting capital before net change
         deposits,
         withdrawals,
         pl,
-        finalCapital: runningCapital
-      };
-    });
+        finalCapital
+      });
+
+      // Set current capital for the next month to this month's final capital
+      currentCapital = finalCapital;
+
+      // Move to the next month
+      cursorDate.setMonth(cursorDate.getMonth() + 1);
+    }
 
     setMonthlyCapital(monthlyCapitalData);
-  }, [trades, capitalChanges, portfolioSize]);
 
-  const addCapitalChange = (change: Omit<CapitalChange, 'id'>) => {
+  }, [trades, capitalChanges, getPortfolioSize, monthlyPortfolioSizes, initialPortfolioSize, months]); // Added months to dependencies
+
+  const addCapitalChange = React.useCallback((change: Omit<CapitalChange, 'id'>) => {
     const newChange = {
       ...change,
       id: generateId()
     };
+    
+    // Update the portfolio size for the month of this change
+    const changeDate = new Date(change.date);
+    const month = changeDate.toLocaleString('default', { month: 'short' });
+    const year = changeDate.getFullYear();
+    
+    // Get current portfolio size for this month
+    const currentSize = getPortfolioSize(month, year);
+    
+    // Calculate new size based on deposit/withdrawal
+    const amount = change.type === 'deposit' ? change.amount : -change.amount;
+    const newSize = currentSize + amount;
+    
+    // Update the portfolio size
+    setPortfolioSize(newSize, month, year);
+    
+    // Add the change to the list
     setCapitalChanges(prev => [...prev, newChange]);
-  };
+    
+    return newChange;
+  }, [getPortfolioSize, setPortfolioSize]);
 
   const updateCapitalChange = (updatedChange: CapitalChange) => {
-    setCapitalChanges(prev => 
-      prev.map(change => 
+    // Find the old change to calculate the difference
+    setCapitalChanges(prev => {
+      const oldChange = prev.find(c => c.id === updatedChange.id);
+      
+      if (oldChange) {
+        // Calculate the difference this change makes
+        const oldAmount = oldChange.type === 'deposit' ? oldChange.amount : -oldChange.amount;
+        const newAmount = updatedChange.type === 'deposit' ? updatedChange.amount : -updatedChange.amount;
+        const difference = newAmount - oldAmount;
+        
+        if (difference !== 0) {
+          // Update the portfolio size for the month of this change
+          const changeDate = new Date(updatedChange.date);
+          const month = changeDate.toLocaleString('default', { month: 'short' });
+          const year = changeDate.getFullYear();
+          
+          // Get current portfolio size for this month
+          const currentSize = getPortfolioSize(month, year);
+          
+          // Update the portfolio size by the difference
+          const newSize = currentSize + difference;
+          setPortfolioSize(newSize, month, year);
+        }
+      }
+      
+      return prev.map(change => 
         change.id === updatedChange.id ? updatedChange : change
-      )
-    );
+      );
+    });
   };
 
   const deleteCapitalChange = (id: string) => {
-    setCapitalChanges(prev => prev.filter(change => change.id !== id));
+    setCapitalChanges(prev => {
+      const changeToDelete = prev.find(c => c.id === id);
+      
+      if (changeToDelete) {
+        // Calculate the amount to adjust the portfolio size by
+        const amount = changeToDelete.type === 'deposit' 
+          ? -changeToDelete.amount  // Subtract deposit
+          : changeToDelete.amount;  // Add back withdrawal
+        
+        // Update the portfolio size for the month of this change
+        const changeDate = new Date(changeToDelete.date);
+        const month = changeDate.toLocaleString('default', { month: 'short' });
+        const year = changeDate.getFullYear();
+        
+        // Get current portfolio size for this month
+        const currentSize = getPortfolioSize(month, year);
+        
+        // Update the portfolio size by reversing the effect of this change
+        const newSize = currentSize + amount;
+        setPortfolioSize(newSize, month, year);
+      }
+      
+      return prev.filter(change => change.id !== id);
+    });
+  };
+
+  // Add or update monthly starting capital for a month/year
+  const setMonthlyStartingCapital = (month: string, year: number, startingCapital: number) => {
+    setMonthlyCapitalHistory(prev => {
+      const idx = prev.findIndex(h => h.month === month && h.year === year);
+      if (idx !== -1) {
+        // Update
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], startingCapital };
+        return updated;
+      } else {
+        // Add
+        return [...prev, { month, year, startingCapital }];
+      }
+    });
   };
 
   return {
@@ -149,6 +313,8 @@ export const useCapitalChanges = (trades: any[], portfolioSize: number) => {
     monthlyCapital,
     addCapitalChange,
     updateCapitalChange,
-    deleteCapitalChange
+    deleteCapitalChange,
+    monthlyCapitalHistory,
+    setMonthlyStartingCapital
   };
 }; 

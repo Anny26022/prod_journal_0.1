@@ -198,206 +198,218 @@ const taxData: TaxData[] = [
     totalTrades: 20, 
     winRate: "50%", 
     avgProfit: "2818.115", 
-    avgLoss: "-2164.22", 
-    grossPL: 6538.92, 
-    taxes: 4597.00, 
-    netPL: 1941.92, 
-    taxPercent: "70.30%", 
-    grossPFImpact: "0.69%", 
-    netPFImpact: "0.20%", 
-    returnPercent: "0.69%" 
-  }
-];
+      avgLoss: "-2164.22", 
+      grossPL: 6538.92, 
+      taxes: 4597.00, 
+      netPL: 1941.92, 
+      taxPercent: "70.30%", 
+      grossPFImpact: "0.69%", 
+      netPFImpact: "0.20%", 
+      returnPercent: "0.69%" 
+    }
+  ];
 
-export const TaxTable: React.FC<TaxTableProps> = ({ isEditMode, onEditRow, trades = [], taxesByMonth, setTaxesByMonth }) => {
-  const { portfolioSize } = usePortfolio();
-  const [taxBreakupSums, setTaxBreakupSums] = useState<{ [month: string]: number }>({});
-  const [taxWarningByMonth, setTaxWarningByMonth] = useState<{ [month: string]: string }>({});
+  export const TaxTable: React.FC<TaxTableProps> = ({ isEditMode, onEditRow, trades = [], taxesByMonth, setTaxesByMonth }) => {
+    const { portfolioSize, getPortfolioSize } = usePortfolio();
+    const [taxBreakupSums, setTaxBreakupSums] = useState<{ [month: string]: number }>({});
+    const [taxWarningByMonth, setTaxWarningByMonth] = useState<{ [month: string]: string }>({});
 
-  // Group trades by month
-  const monthOrder = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-  const monthlyMap: Record<string, Trade[]> = {};
-  trades.forEach(trade => {
-    const d = new Date(trade.date);
-    const month = d.toLocaleString('default', { month: 'long' });
-    if (!monthlyMap[month]) monthlyMap[month] = [];
-    monthlyMap[month].push(trade);
-  });
+    // Group trades by month
+    const monthOrder = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    const monthlyMap: Record<string, Trade[]> = {};
+    trades.forEach(trade => {
+      const d = new Date(trade.date);
+      const month = d.toLocaleString('default', { month: 'long' });
+      if (!monthlyMap[month]) monthlyMap[month] = [];
+      monthlyMap[month].push(trade);
+    });
 
-  const tableData = monthOrder.map(month => {
-    const monthTrades = monthlyMap[month] || [];
-    const totalTrades = monthTrades.length;
-    const winTrades = monthTrades.filter(t => t.plRs > 0);
-    const lossTrades = monthTrades.filter(t => t.plRs < 0);
-    const winRate = totalTrades > 0 ? (winTrades.length / totalTrades) * 100 : 0;
-    const avgProfit = winTrades.length > 0 ? (winTrades.reduce((sum, t) => sum + (t.plRs || 0), 0) / winTrades.length) : 0;
-    const avgLoss = lossTrades.length > 0 ? (lossTrades.reduce((sum, t) => sum + (t.plRs || 0), 0) / lossTrades.length) : 0;
-    const grossPL = monthTrades.reduce((sum, t) => sum + (t.plRs || 0), 0);
-    const taxes = taxesByMonth[month] ?? 0;
-    const netPL = grossPL - taxes;
-    const taxPercent = grossPL !== 0 ? (taxes / Math.abs(grossPL)) * 100 : 0;
-    const grossPFImpact = portfolioSize > 0 ? (grossPL / portfolioSize) * 100 : 0;
-    const netPFImpact = portfolioSize > 0 ? ((grossPL - taxes) / portfolioSize) * 100 : 0;
-    return {
-      month,
-      totalTrades,
-      winRate: totalTrades > 0 ? winRate.toFixed(2) + "%" : "#N/A",
-      avgProfit: winTrades.length > 0 ? avgProfit.toFixed(2) : "#DIV/0!",
-      avgLoss: lossTrades.length > 0 ? avgLoss.toFixed(2) : "#DIV/0!",
-      grossPL,
-      taxes,
-      netPL,
-      taxPercent: grossPL !== 0 ? taxPercent.toFixed(2) + "%" : "0.00%",
-      grossPFImpact: grossPFImpact.toFixed(2) + "%",
-      netPFImpact: netPFImpact.toFixed(2) + "%",
-      returnPercent: "-",
+    const tableData = monthOrder.map(month => {
+      const monthTrades = monthlyMap[month] || [];
+      const totalTrades = monthTrades.length;
+      const winTrades = monthTrades.filter(t => t.plRs > 0);
+      const lossTrades = monthTrades.filter(t => t.plRs < 0);
+      const winRate = totalTrades > 0 ? (winTrades.length / totalTrades) * 100 : 0;
+      const avgProfit = winTrades.length > 0 ? (winTrades.reduce((sum, t) => sum + (t.plRs || 0), 0) / winTrades.length) : 0;
+      const avgLoss = lossTrades.length > 0 ? (lossTrades.reduce((sum, t) => sum + (t.plRs || 0), 0) / lossTrades.length) : 0;
+      const grossPL = monthTrades.reduce((sum, t) => sum + (t.plRs || 0), 0);
+      const taxes = taxesByMonth[month] ?? 0;
+      const netPL = grossPL - taxes;
+      const taxPercent = grossPL !== 0 ? (taxes / Math.abs(grossPL)) * 100 : 0;
+      const currentYear = new Date().getFullYear();
+      const monthlyPortfolioSize = getPortfolioSize ? getPortfolioSize(month, currentYear) : portfolioSize;
+      
+      const grossPFImpact = monthlyPortfolioSize > 0 ? (grossPL / monthlyPortfolioSize) * 100 : 0;
+      const netPFImpact = monthlyPortfolioSize > 0 ? ((grossPL - taxes) / monthlyPortfolioSize) * 100 : 0;
+      return {
+        month,
+        totalTrades,
+        winRate: totalTrades > 0 ? winRate.toFixed(2) + "%" : "#N/A",
+        avgProfit: winTrades.length > 0 ? avgProfit.toFixed(2) : "#DIV/0!",
+        avgLoss: lossTrades.length > 0 ? avgLoss.toFixed(2) : "#DIV/0!",
+        grossPL,
+        taxes,
+        netPL,
+        taxPercent: grossPL !== 0 ? taxPercent.toFixed(2) + "%" : "0.00%",
+        grossPFImpact: grossPFImpact.toFixed(2) + "%",
+        netPFImpact: netPFImpact.toFixed(2) + "%",
+        returnPercent: "-",
+      };
+    });
+
+    // Helper to update breakup sum for a month (to be called from modal or parent)
+    const updateTaxBreakupSum = (month: string, sum: number) => {
+      setTaxBreakupSums(prev => ({ ...prev, [month]: sum }));
     };
-  });
 
-  // Helper to update breakup sum for a month (to be called from modal or parent)
-  const updateTaxBreakupSum = (month: string, sum: number) => {
-    setTaxBreakupSums(prev => ({ ...prev, [month]: sum }));
-  };
-
-  const handleCellChange = (index: number, field: keyof TaxData, value: string | number) => {
-    if (field === 'taxes') {
-      const month = tableData[index].month;
-      const breakupSum = taxBreakupSums[month];
-      let numValue = Number(value);
-      if (breakupSum !== undefined && numValue > breakupSum) {
-        numValue = breakupSum;
-        setTaxWarningByMonth(prev => ({ ...prev, [month]: "Taxes cannot exceed the sum of detailed charges." }));
-      } else {
-        setTaxWarningByMonth(prev => ({ ...prev, [month]: "" }));
-      }
-      setTaxesByMonth(prev => ({ ...prev, [month]: numValue }));
-    }
-  };
-  
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    }).format(value);
-  };
-  
-  const renderCell = (item: TaxData, columnKey: string, index: number) => {
-    const cellValue = item[columnKey as keyof TaxData];
-    
-    if (isEditMode) {
-      if (columnKey === 'month') {
-        return cellValue;
-      }
-      
-      if (columnKey === 'actions') {
-        return (
-          <div className="flex justify-end">
-            <Button
-              isIconOnly
-              size="sm"
-              variant="light"
-              onPress={() => onEditRow(item.month)}
-            >
-              <Icon icon="lucide:edit-3" className="text-primary" />
-            </Button>
-          </div>
-        );
-      }
-      
-      if (columnKey === 'taxes') {
-        return (
-          <div>
-            <Input
-              size="sm"
-              variant="bordered"
-              value={cellValue.toString()}
-              onChange={e => handleCellChange(index, 'taxes', e.target.value)}
-              classNames={{ inputWrapper: "h-8 min-h-0", input: "text-sm" }}
-              startContent={<span className="text-default-400">₹</span>}
-              type="number"
-              min={0}
-            />
-            {taxWarningByMonth[item.month] && (
-              <div style={{color: 'red', fontSize: '0.9em'}}>{taxWarningByMonth[item.month]}</div>
-            )}
-          </div>
-        );
-      }
-      
-      return (
-        <Input
-          size="sm"
-          variant="bordered"
-          value={cellValue.toString()}
-          onChange={(e) => handleCellChange(index, columnKey as keyof TaxData, e.target.value)}
-          classNames={{
-            inputWrapper: "h-8 min-h-0",
-            input: "text-sm"
-          }}
-        />
-      );
-    }
-    
-    switch (columnKey) {
-      case "month":
-        return (
-          <div className="font-medium">{cellValue}</div>
-        );
-      case "totalTrades":
-        return cellValue;
-      case "winRate":
-      case "avgProfit":
-      case "avgLoss":
-      case "taxPercent":
-      case "grossPFImpact":
-      case "netPFImpact":
-      case "returnPercent":
-        const value = cellValue.toString();
-        const isNegative = value.includes('-');
-        const isInvalid = value.includes('#');
+    const handleCellChange = (index: number, field: keyof TaxData, value: string | number) => {
+      if (field === 'taxes') {
+        const month = tableData[index].month;
+        const breakupSum = taxBreakupSums[month];
+        let numValue = Number(value);
         
-        if (isInvalid) {
-          return <span className="text-default-400">{value}</span>;
+        // Ensure the value is not negative
+        numValue = Math.max(0, numValue);
+        
+        if (breakupSum !== undefined && numValue > breakupSum) {
+          numValue = breakupSum;
+          setTaxWarningByMonth(prev => ({ ...prev, [month]: "Taxes cannot exceed the sum of detailed charges." }));
+        } else {
+          setTaxWarningByMonth(prev => ({ ...prev, [month]: "" }));
         }
         
-        return (
-          <span className={isNegative ? "text-danger" : "text-success"}>
-            {value}
-          </span>
-        );
-      case "grossPL":
-      case "taxes":
-      case "netPL":
-        const numValue = cellValue as number;
-        return (
-          <span className={numValue < 0 ? "text-danger" : "text-success"}>
-            {formatCurrency(numValue)}
-          </span>
-        );
-      case "actions":
-        return (
-          <div className="flex justify-end">
-            <Tooltip content="View Details">
+        // Update the taxesByMonth state which will trigger the save to localStorage
+        setTaxesByMonth(prev => ({
+          ...prev,
+          [month]: numValue
+        }));
+      }
+    };
+    
+    const formatCurrency = (value: number) => {
+      return new Intl.NumberFormat("en-IN", {
+        style: "currency",
+        currency: "INR",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(value);
+    };
+    
+    const renderCell = (item: TaxData, columnKey: string, index: number) => {
+      const cellValue = item[columnKey as keyof TaxData];
+      
+      if (isEditMode) {
+        if (columnKey === 'month') {
+          return cellValue;
+        }
+        
+        if (columnKey === 'actions') {
+          return (
+            <div className="flex justify-end">
               <Button
                 isIconOnly
                 size="sm"
                 variant="light"
                 onPress={() => onEditRow(item.month)}
               >
-                <Icon icon="lucide:eye" className="text-default-600" />
+                <Icon icon="lucide:edit-3" className="text-primary" />
               </Button>
-            </Tooltip>
-          </div>
+            </div>
+          );
+        }
+        
+        if (columnKey === 'taxes') {
+          return (
+            <div>
+              <Input
+                size="sm"
+                variant="bordered"
+                value={cellValue.toString()}
+                onChange={e => handleCellChange(index, 'taxes', e.target.value)}
+                classNames={{ inputWrapper: "h-8 min-h-0", input: "text-sm" }}
+                startContent={<span className="text-default-400">₹</span>}
+                type="number"
+                min={0}
+              />
+              {taxWarningByMonth[item.month] && (
+                <div style={{color: 'red', fontSize: '0.9em'}}>{taxWarningByMonth[item.month]}</div>
+              )}
+            </div>
+          );
+        }
+        
+        return (
+          <Input
+            size="sm"
+            variant="bordered"
+            value={cellValue.toString()}
+            onChange={(e) => handleCellChange(index, columnKey as keyof TaxData, e.target.value)}
+            classNames={{
+              inputWrapper: "h-8 min-h-0",
+              input: "text-sm"
+            }}
+          />
         );
-      default:
-        return cellValue;
-    }
-  };
-  
-  return (
-    <div className="overflow-x-auto">
+      }
+      
+      switch (columnKey) {
+        case "month":
+          return (
+            <div className="font-medium">{cellValue}</div>
+          );
+        case "totalTrades":
+          return cellValue;
+        case "winRate":
+        case "avgProfit":
+        case "avgLoss":
+        case "taxPercent":
+        case "grossPFImpact":
+        case "netPFImpact":
+        case "returnPercent":
+          const value = cellValue.toString();
+          const isNegative = value.includes('-');
+          const isInvalid = value.includes('#');
+          
+          if (isInvalid) {
+            return <span className="text-default-400">{value}</span>;
+          }
+          
+          return (
+            <span className={isNegative ? "text-danger" : "text-success"}>
+              {value}
+            </span>
+          );
+        case "grossPL":
+        case "taxes":
+        case "netPL":
+          const numValue = cellValue as number;
+          return (
+            <span className={numValue < 0 ? "text-danger" : "text-success"}>
+              {formatCurrency(numValue)}
+            </span>
+          );
+        case "actions":
+          return (
+            <div className="flex justify-end">
+              <Tooltip content="View Details">
+                <Button
+                  isIconOnly
+                  size="sm"
+                  variant="light"
+                  onPress={() => onEditRow(item.month)}
+                >
+                  <Icon icon="lucide:eye" className="text-default-600" />
+                </Button>
+              </Tooltip>
+            </div>
+          );
+        default:
+          return cellValue;
+      }
+    };
+    
+    return (
+      <div className="overflow-x-auto">
       <Table 
         aria-label="Tax data table"
         removeWrapper

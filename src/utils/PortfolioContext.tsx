@@ -1,43 +1,155 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect } from "react";
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from "react";
 
-interface PortfolioContextType {
-  portfolioSize: number;
-  setPortfolioSize: (size: number) => void;
+export interface MonthlyPortfolioSize {
+  month: string;
+  year: number;
+  size: number;
+  updatedAt: string;
 }
 
-const PORTFOLIO_SIZE_KEY = 'portfolioSize';
+interface PortfolioContextType {
+  portfolioSize: number; // For backward compatibility
+  monthlyPortfolioSizes: MonthlyPortfolioSize[];
+  setPortfolioSize: (size: number, month: string, year: number) => void;
+  getPortfolioSize: (month: string, year: number) => number;
+  getLatestPortfolioSize: () => number;
+}
+
+const PORTFOLIO_SIZES_KEY = 'monthlyPortfolioSizes';
 const DEFAULT_PORTFOLIO_SIZE = 1000000; // Default 10 lakh
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
 
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
-  const [portfolioSize, setPortfolioSizeState] = useState<number>(() => {
-    // Load from localStorage on initial render
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(PORTFOLIO_SIZE_KEY);
-      return saved ? Number(saved) : DEFAULT_PORTFOLIO_SIZE;
-    }
-    return DEFAULT_PORTFOLIO_SIZE;
-  });
+  const [monthlyPortfolioSizes, setMonthlyPortfolioSizes] = useState<MonthlyPortfolioSize[]>([]);
+  const [hydrated, setHydrated] = useState(false);
 
-  // Update localStorage when portfolioSize changes
+  // Load saved monthly portfolio sizes from localStorage
   useEffect(() => {
-    localStorage.setItem(PORTFOLIO_SIZE_KEY, portfolioSize.toString());
-  }, [portfolioSize]);
+    const saved = localStorage.getItem(PORTFOLIO_SIZES_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setMonthlyPortfolioSizes(parsed);
+        }
+      } catch (e) {
+        console.error('Failed to parse saved portfolio sizes', e);
+      }
+    }
+    setHydrated(true);
+  }, []);
 
-  // Wrapper function to update both state and localStorage
-  const setPortfolioSize = (size: number) => {
-    setPortfolioSizeState(size);
-  };
+  // Save to localStorage when monthlyPortfolioSizes changes
+  useEffect(() => {
+    if (hydrated && monthlyPortfolioSizes.length > 0) {
+      localStorage.setItem(PORTFOLIO_SIZES_KEY, JSON.stringify(monthlyPortfolioSizes));
+    }
+  }, [monthlyPortfolioSizes, hydrated]);
+
+  // For backward compatibility
+  const portfolioSize = useCallback(() => {
+    if (monthlyPortfolioSizes.length === 0) return DEFAULT_PORTFOLIO_SIZE;
+    const sorted = [...monthlyPortfolioSizes].sort((a, b) => 
+      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
+    return sorted[0].size;
+  }, [monthlyPortfolioSizes]);
+
+  const setPortfolioSize = useCallback((size: number, month: string, year: number) => {
+    setMonthlyPortfolioSizes(prev => {
+      // Create a new array to ensure state updates are detected
+      const updatedSizes = [...prev];
+      const existingIndex = updatedSizes.findIndex(
+        item => item.month === month && item.year === year
+      );
+      
+      const newSize = {
+        month,
+        year,
+        size,
+        updatedAt: new Date().toISOString()
+      };
+
+      if (existingIndex >= 0) {
+        // Update existing
+        updatedSizes[existingIndex] = newSize;
+      } else {
+        // Add new
+        updatedSizes.push(newSize);
+      }
+      
+      // Sort by year and month to ensure consistent ordering
+      updatedSizes.sort((a, b) => {
+        if (a.year !== b.year) return a.year - b.year;
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return months.indexOf(a.month) - months.indexOf(b.month);
+      });
+      
+      return updatedSizes;
+    });
+  }, []);
+
+  const getPortfolioSize = useCallback((month: string, year: number): number => {
+    const size = monthlyPortfolioSizes.find(
+      item => item.month === month && item.year === year
+    );
+    
+    if (size) return size.size;
+    
+    // If no specific size for this month, find the most recent one *within the same year* or fallback to default
+    const monthIndex = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ].indexOf(month);
+    
+    if (monthIndex === -1) return DEFAULT_PORTFOLIO_SIZE; // Should not happen with valid month names
+    
+    const currentDate = new Date(year, monthIndex, 1);
+    
+    const previousSizesInSameYear = monthlyPortfolioSizes
+      .filter(item => {
+        const itemMonthIndex = [
+          'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+        ].indexOf(item.month);
+        const itemDate = new Date(item.year, itemMonthIndex, 1);
+        // Only consider previous sizes within the same year
+        return itemDate < currentDate && item.year === year;
+      })
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    
+    // If a previous size exists in the same year, use it, otherwise use the default
+    return previousSizesInSameYear[0]?.size || DEFAULT_PORTFOLIO_SIZE;
+  }, [monthlyPortfolioSizes]);
+
+  const getLatestPortfolioSize = useCallback((): number => {
+    if (monthlyPortfolioSizes.length === 0) return DEFAULT_PORTFOLIO_SIZE;
+    const sorted = [...monthlyPortfolioSizes].sort((a, b) => 
+      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
+    return sorted[0].size;
+  }, [monthlyPortfolioSizes]);
+
+  // Only render children after hydration
+  if (!hydrated) return null;
 
   return (
-    <PortfolioContext.Provider value={{ portfolioSize, setPortfolioSize }}>
+    <PortfolioContext.Provider 
+      value={{
+        portfolioSize: portfolioSize(),
+        monthlyPortfolioSizes,
+        setPortfolioSize,
+        getPortfolioSize,
+        getLatestPortfolioSize
+      }}
+    >
       {children}
     </PortfolioContext.Provider>
   );
 };
 
-export const usePortfolio = () => {
+export const usePortfolio = (): PortfolioContextType => {
   const ctx = useContext(PortfolioContext);
   if (!ctx) throw new Error("usePortfolio must be used within a PortfolioProvider");
   return ctx;

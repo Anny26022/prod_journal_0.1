@@ -4,7 +4,7 @@ import { Icon } from "@iconify/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { metricVariants, listItemVariants } from "../../utils/animations";
 import { Trade } from "../../types/trade";
-import { calcOpenHeat } from "../../utils/tradeCalculations";
+import { calcOpenHeat, calcWeightedRewardRisk } from "../../utils/tradeCalculations";
 import { usePortfolio } from "../../utils/PortfolioContext";
 
 interface MetricProps {
@@ -152,7 +152,7 @@ interface PerformanceMetricsProps {
 }
 
 export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ trades, isEditing = false }) => {
-  const { portfolioSize } = usePortfolio();
+  const { portfolioSize, getPortfolioSize } = usePortfolio();
   // Calculate metrics from trades
   const totalTrades = trades.length;
   const winTrades = trades.filter(t => t.plRs > 0);
@@ -163,10 +163,10 @@ export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ trades, 
   const avgPositionSize = totalTrades > 0 ? trades.reduce((sum, t) => sum + (t.allocation || 0), 0) / totalTrades : 0;
   const avgHoldingDays = totalTrades > 0 ? trades.reduce((sum, t) => sum + (t.holdingDays || 0), 0) / totalTrades : 0;
   const planFollowed = totalTrades > 0 ? (trades.filter(t => t.planFollowed).length / totalTrades) * 100 : 0;
-  const avgR = totalTrades > 0 ? trades.reduce((sum, t) => sum + (t.rewardRisk || 0), 0) / totalTrades : 0;
+  const avgR = totalTrades > 0 ? trades.reduce((sum, t) => sum + calcWeightedRewardRisk(t), 0) / totalTrades : 0;
   const openPositions = trades.filter(t => t.positionStatus === 'Open').length;
   const cashPercentage = 100 - trades.reduce((sum, t) => sum + (t.allocation || 0), 0);
-  const openHeat = calcOpenHeat(trades, portfolioSize);
+  const openHeat = calcOpenHeat(trades, portfolioSize, getPortfolioSize);
 
   return (
     <motion.div 

@@ -20,6 +20,7 @@ import { Icon } from "@iconify/react";
 import { Trade } from "../types/trade";
 import { generateId } from "../utils/helpers";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { usePriceTicks } from "../hooks/usePriceTicks";
 import {
   calcAvgEntry,
   calcPositionSize,
@@ -34,168 +35,218 @@ import {
   calcRealisedAmount,
   calcPLRs,
   calcPFImpact,
-  calcCummPf
+  calcCummPf,
+  calcUnrealizedPL,
+  calcRealizedPL_FIFO
 } from "../utils/tradeCalculations";
 import { usePortfolio } from "../utils/PortfolioContext";
 import { useTrades } from "../hooks/use-trades";
+import { validateTrade, TradeIssue } from "../utils/tradeValidations";
 
-// Debounce helper
-const useDebounce = <T,>(value: T, delay: number): T => {
-  const [debouncedValue, setDebouncedValue] = React.useState<T>(value);
+  // Debounce helper
+  const useDebounce = <T,>(value: T, delay: number): T => {
+    const [debouncedValue, setDebouncedValue] = React.useState<T>(value);
 
-  React.useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
+    React.useEffect(() => {
+      const handler = setTimeout(() => {
+        setDebouncedValue(value);
+      }, delay);
 
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
+      return () => {
+        clearTimeout(handler);
+      };
+    }, [value, delay]);
 
-  return debouncedValue;
-};
-
-interface TradeModalProps {
-  isOpen: boolean;
-  onOpenChange: (isOpen: boolean) => void;
-  trade?: Trade;
-  onSave: (trade: Trade) => void;
-  mode: "add" | "edit";
-}
-
-type TradeModalFormData = Trade & { slPercent: number };
-
-const defaultTrade: TradeModalFormData = {
-  id: "",
-  tradeNo: "",
-  date: new Date().toISOString().split("T")[0],
-  name: "",
-  entry: 0,
-  avgEntry: 0,
-  sl: 0,
-  tsl: 0,
-  buySell: "Buy",
-  cmp: 0,
-  setup: "",
-  baseDuration: "",
-  initialQty: 0,
-  pyramid1Price: 0,
-  pyramid1Qty: 0,
-  pyramid1Date: "",
-  pyramid2Price: 0,
-  pyramid2Qty: 0,
-  pyramid2Date: "",
-  positionSize: 0,
-  allocation: 0,
-  exit1Price: 0,
-  exit1Qty: 0,
-  exit1Date: "",
-  exit2Price: 0,
-  exit2Qty: 0,
-  exit2Date: "",
-  exit3Price: 0,
-  exit3Qty: 0,
-  exit3Date: "",
-  openQty: 0,
-  exitedQty: 0,
-  avgExitPrice: 0,
-  stockMove: 0,
-  openHeat: 0,
-  rewardRisk: 0,
-  holdingDays: 0,
-  positionStatus: "Open",
-  realisedAmount: 0,
-  plRs: 0,
-  pfImpact: 0,
-  cummPf: 0,
-  planFollowed: true,
-  exitTrigger: "",
-  proficiencyGrowthAreas: "",
-  slPercent: 0
-};
-
-interface TradeEntry {
-  price: number;
-  qty: number;
-}
-
-const recalculateTrade = (trade: Partial<TradeModalFormData>, portfolioSize: number): TradeModalFormData => {
-  // Safely parse and filter entries
-  const entries: TradeEntry[] = [
-    { price: Number(trade.entry || 0), qty: Number(trade.initialQty || 0) },
-    { price: Number(trade.pyramid1Price || 0), qty: Number(trade.pyramid1Qty || 0) },
-    { price: Number(trade.pyramid2Price || 0), qty: Number(trade.pyramid2Qty || 0) }
-  ].filter(e => e.qty > 0 && e.price > 0);
-
-  const avgEntry = entries.length > 0 ? calcAvgEntry(entries) : Number(trade.entry) || 0;
-  const totalQty = entries.reduce((sum, e) => sum + e.qty, 0);
-  const positionSize = totalQty > 0 ? calcPositionSize(avgEntry, totalQty) : 0;
-  const allocation = positionSize > 0 && portfolioSize > 0 ? calcAllocation(positionSize, portfolioSize) : 0;
-  
-  // Calculate exits
-  const exit1Qty = Number(trade.exit1Qty || 0);
-  const exit2Qty = Number(trade.exit2Qty || 0);
-  const exit3Qty = Number(trade.exit3Qty || 0);
-  
-  const exitedQty = calcExitedQty(exit1Qty, exit2Qty, exit3Qty);
-  const openQty = Math.max(0, totalQty - exitedQty);
-  
-  const exits: TradeEntry[] = [
-    { price: Number(trade.exit1Price || 0), qty: exit1Qty },
-    { price: Number(trade.exit2Price || 0), qty: exit2Qty },
-    { price: Number(trade.exit3Price || 0), qty: exit3Qty }
-  ].filter(e => e.qty > 0 && e.price > 0);
-  
-  const avgExitPrice = exits.length > 0 ? calcAvgExitPrice(exits) : 0;
-  const stockMove = avgEntry > 0 ? calcStockMove(avgExitPrice, avgEntry) : 0;
-  
-  // Calculate SL percentage
-  const entryPrice = Number(trade.entry) || 0;
-  const slPrice = Number(trade.sl) || 0;
-  const slPercent = entryPrice > 0 && slPrice > 0 ? calcSLPercent(slPrice, entryPrice) : 0;
-  
-  // Calculate reward/risk
-  const cmp = Number(trade.cmp) || 0;
-  const rewardRisk = entryPrice > 0 && slPrice > 0 ? calcRewardRisk(cmp, entryPrice, slPrice) : 0;
-  
-  // Calculate holding period
-  const entryDate = trade.date || '';
-  const exitDate = trade.exit1Date || '';
-  const holdingDays = entryDate && exitDate ? calcHoldingDays(entryDate, exitDate) : 0;
-  
-  // Calculate P&L
-  const realisedAmount = exitedQty > 0 ? calcRealisedAmount(exitedQty, avgExitPrice) : 0;
-  const plRs = positionSize > 0 ? calcPLRs(realisedAmount, positionSize) : 0;
-  const pfImpact = portfolioSize > 0 ? calcPFImpact(plRs, portfolioSize) : 0;
-  
-  return {
-    ...(trade as TradeModalFormData),
-    avgEntry,
-    positionSize,
-    allocation,
-    exitedQty,
-    openQty,
-    avgExitPrice,
-    stockMove,
-    slPercent,
-    rewardRisk,
-    holdingDays,
-    realisedAmount,
-    plRs,
-    pfImpact
+    return debouncedValue;
   };
-};
 
-export const TradeModal: React.FC<TradeModalProps> = React.memo(({
-  isOpen,
-  onOpenChange,
-  trade,
-  onSave,
-  mode
-}) => {
-  const { portfolioSize } = usePortfolio();
-  const { trades } = useTrades();
+  interface TradeModalProps {
+    isOpen: boolean;
+    onOpenChange: (isOpen: boolean) => void;
+    trade?: Trade;
+    onSave: (trade: Trade) => void;
+    mode: "add" | "edit";
+    symbol?: string;
+  }
+
+  type TradeModalFormData = Trade & { slPercent: number };
+
+  const defaultTrade: TradeModalFormData = {
+    id: "",
+    tradeNo: "",
+    date: new Date().toISOString().split("T")[0],
+    name: "",
+    entry: 0,
+    avgEntry: 0,
+    sl: 0,
+    tsl: 0,
+    buySell: "Buy",
+    cmp: 0,
+    setup: "",
+    baseDuration: "",
+    initialQty: 0,
+    pyramid1Price: 0,
+    pyramid1Qty: 0,
+    pyramid1Date: "",
+    pyramid2Price: 0,
+    pyramid2Qty: 0,
+    pyramid2Date: "",
+    positionSize: 0,
+    allocation: 0,
+    exit1Price: 0,
+    exit1Qty: 0,
+    exit1Date: "",
+    exit2Price: 0,
+    exit2Qty: 0,
+    exit2Date: "",
+    exit3Price: 0,
+    exit3Qty: 0,
+    exit3Date: "",
+    openQty: 0,
+    exitedQty: 0,
+    avgExitPrice: 0,
+    stockMove: 0,
+    rewardRisk: 0,
+    holdingDays: 0,
+    positionStatus: "Open",
+    realisedAmount: 0,
+    plRs: 0,
+    pfImpact: 0,
+    cummPf: 0,
+    planFollowed: true,
+    exitTrigger: "",
+    proficiencyGrowthAreas: "",
+    slPercent: 0,
+    openHeat: 0
+  };
+
+  interface TradeEntry {
+    price: number;
+    qty: number;
+  }
+
+  const recalculateTrade = (
+    trade: Partial<TradeModalFormData>, 
+    defaultPortfolioSize: number,
+    getPortfolioSize?: (month: string, year: number) => number
+  ): TradeModalFormData => {
+    // Safely parse and filter entries
+    const entries: TradeEntry[] = [
+      { price: Number(trade.entry || 0), qty: Number(trade.initialQty || 0) },
+      { price: Number(trade.pyramid1Price || 0), qty: Number(trade.pyramid1Qty || 0) },
+      { price: Number(trade.pyramid2Price || 0), qty: Number(trade.pyramid2Qty || 0) }
+    ].filter(e => e.qty > 0 && e.price > 0);
+
+    const avgEntry = entries.length > 0 ? calcAvgEntry(entries) : Number(trade.entry) || 0;
+    const totalQty = entries.reduce((sum, e) => sum + e.qty, 0);
+    const positionSize = totalQty > 0 ? calcPositionSize(avgEntry, totalQty) : 0;
+    // Get the portfolio size for the trade's month/year
+    let tradePortfolioSize = defaultPortfolioSize;
+    if (trade.date && getPortfolioSize) {
+      const tradeDate = new Date(trade.date);
+      const month = tradeDate.toLocaleString('default', { month: 'short' });
+      const year = tradeDate.getFullYear();
+      const monthlyPortfolioSize = getPortfolioSize(month, year);
+      if (monthlyPortfolioSize !== undefined) {
+        tradePortfolioSize = monthlyPortfolioSize;
+      }
+    }
+    
+    const allocation = positionSize > 0 && tradePortfolioSize > 0 ? 
+      calcAllocation(positionSize, tradePortfolioSize) : 0;
+    
+    // Calculate exits
+    const exit1Qty = Number(trade.exit1Qty || 0);
+    const exit2Qty = Number(trade.exit2Qty || 0);
+    const exit3Qty = Number(trade.exit3Qty || 0);
+    
+    const exitedQty = calcExitedQty(exit1Qty, exit2Qty, exit3Qty);
+    const openQty = Math.max(0, totalQty - exitedQty);
+    
+    const exits: TradeEntry[] = [
+      { price: Number(trade.exit1Price || 0), qty: exit1Qty },
+      { price: Number(trade.exit2Price || 0), qty: exit2Qty },
+      { price: Number(trade.exit3Price || 0), qty: exit3Qty }
+    ].filter(e => e.qty > 0 && e.price > 0);
+    
+    const avgExitPrice = exits.length > 0 ? calcAvgExitPrice(exits) : 0;
+    const stockMove = avgEntry > 0 ? calcStockMove(avgEntry, avgExitPrice, Number(trade.cmp || 0), openQty, exitedQty, trade.positionStatus || 'Open', trade.buySell || 'Buy') : 0;
+    
+    // Calculate SL percentage
+    const entryPrice = Number(trade.entry) || 0;
+    const slPrice = Number(trade.sl) || 0;
+    const slPercent = entryPrice > 0 && slPrice > 0 ? calcSLPercent(slPrice, entryPrice) : 0;
+    
+    // Calculate reward/risk
+    const cmp = Number(trade.cmp) || 0;
+    const rewardRisk = entryPrice > 0 && slPrice > 0 ? calcRewardRisk(cmp, entryPrice, slPrice, trade.positionStatus || 'Open', avgExitPrice, openQty, exitedQty, trade.buySell || 'Buy') : 0;
+    
+    // Calculate holding period
+    const entryDate = trade.date || '';
+    const exitDate = trade.exit1Date || '';
+    const holdingDays = entryDate && exitDate ? calcHoldingDays(entryDate, exitDate) : 0;
+    
+    // Calculate P&L
+    const realisedAmount = exitedQty > 0 ? calcRealisedAmount(exitedQty, avgExitPrice) : 0;
+    // Build entry and exit lots for FIFO
+    const entryLots = [
+      { price: Number(trade.entry || 0), qty: Number(trade.initialQty || 0) },
+      { price: Number(trade.pyramid1Price || 0), qty: Number(trade.pyramid1Qty || 0) },
+      { price: Number(trade.pyramid2Price || 0), qty: Number(trade.pyramid2Qty || 0) }
+    ].filter(e => e.qty > 0 && e.price > 0);
+    const exitLots = [
+      { price: Number(trade.exit1Price || 0), qty: exit1Qty },
+      { price: Number(trade.exit2Price || 0), qty: exit2Qty },
+      { price: Number(trade.exit3Price || 0), qty: exit3Qty }
+    ].filter(e => e.qty > 0 && e.price > 0);
+    const plRs = exitedQty > 0 ? calcRealizedPL_FIFO(entryLots, exitLots, trade.buySell as 'Buy' | 'Sell') : 0;
+    const pfImpact = tradePortfolioSize > 0 ? calcPFImpact(plRs, tradePortfolioSize) : 0;
+    
+    return {
+      ...(trade as TradeModalFormData),
+      avgEntry,
+      positionSize,
+      allocation,
+      exitedQty,
+      openQty,
+      avgExitPrice,
+      stockMove,
+      slPercent,
+      rewardRisk,
+      holdingDays,
+      realisedAmount,
+      plRs,
+      pfImpact
+    };
+  };
+
+  export const TradeModal: React.FC<TradeModalProps> = React.memo(({
+    isOpen,
+    onOpenChange,
+    trade,
+    onSave,
+    mode,
+    symbol: initialSymbol = "",
+  }) => {
+    console.log("[TradeModal] Initial Symbol:", initialSymbol); // Log initial symbol
+    const { latestPrice } = usePriceTicks(initialSymbol);
+    
+    // Update CMP when latest price changes
+    React.useEffect(() => {
+      if (latestPrice?.close && latestPrice.close > 0) {
+        console.log("[TradeModal] Updating CMP with latest price:", latestPrice.close);
+        handleChange('cmp', latestPrice.close);
+      }
+    }, [latestPrice]);
+    const { portfolioSize, getPortfolioSize } = usePortfolio();
+    const { trades } = useTrades();
+    // Reset form when symbol changes
+    React.useEffect(() => {
+      if (initialSymbol && mode === 'add') {
+        handleChange('name', initialSymbol);
+      }
+    }, [initialSymbol, mode]);
+
   // Unique key for sessionStorage
   const sessionKey = React.useMemo(() => {
     if (mode === 'edit' && trade?.id) return `tradeModal_edit_${trade.id}`;
@@ -290,7 +341,7 @@ export const TradeModal: React.FC<TradeModalProps> = React.memo(({
         const updatedData = { ...prevData };
         
         // Recalculate all fields using the recalculateTrade function
-        const recalculated = recalculateTrade(updatedData, portfolioSize);
+        const recalculated = recalculateTrade(updatedData, portfolioSize, getPortfolioSize);
         
         // Only update if there are actual changes to prevent infinite loops
         const hasChanges = Object.keys(recalculated).some(key => 
@@ -353,7 +404,7 @@ export const TradeModal: React.FC<TradeModalProps> = React.memo(({
   // Calculate values when form is submitted
   const calculateValues = React.useCallback(() => {
     // Use the recalculateTrade function to ensure all fields are up to date
-    const recalculated = recalculateTrade(formData, portfolioSize);
+    const recalculated = recalculateTrade(formData, portfolioSize, getPortfolioSize);
     
     // Update form data with recalculated values
     setFormData(prev => ({
@@ -362,17 +413,34 @@ export const TradeModal: React.FC<TradeModalProps> = React.memo(({
     }));
     
     return recalculated;
-  }, [formData, portfolioSize]);
+  }, [formData, portfolioSize, getPortfolioSize]);
 
+  const [validationIssues, setValidationIssues] = React.useState<TradeIssue[]>([]);
+
+  // Add useEffect to validate on form changes
+  React.useEffect(() => {
+    const issues = validateTrade(formData);
+    setValidationIssues(issues);
+  }, [formData]);
+
+  // Modify handleSubmit to check for errors
   const handleSubmit = React.useCallback(() => {
+    const issues = validateTrade(formData);
+    setValidationIssues(issues);
+    
+    // If there are any errors (not just warnings), prevent save
+    if (issues.some(issue => issue.type === 'error')) {
+      return; // Don't save if there are errors
+    }
+
     calculateValues();
     const newTrade = {
       ...debouncedFormData,
       id: debouncedFormData.id || generateId()
     };
-    const recalculated = recalculateTrade(newTrade, portfolioSize);
+    const recalculated = recalculateTrade(newTrade, portfolioSize, getPortfolioSize);
     onSave(recalculated);
-  }, [debouncedFormData, calculateValues, onSave, portfolioSize]);
+  }, [debouncedFormData, calculateValues, onSave, portfolioSize, formData, getPortfolioSize]);
 
   const modalMotionProps = React.useMemo(() => ({
         variants: {
@@ -518,7 +586,6 @@ export const TradeModal: React.FC<TradeModalProps> = React.memo(({
     // Performance Metrics
     { name: "stockMove", label: "Stock Move (₹)", type: "calculated", unit: "₹" },
     { name: "slPercent", label: "SL (%)", type: "calculated", unit: "%" },
-    { name: "openHeat", label: "Open Heat (%)", type: "calculated", unit: "%" },
     { name: "rewardRisk", label: "Reward/Risk (x)", type: "calculated", unit: "x" },
     { name: "holdingDays", label: "Holding Days", type: "calculated", unit: "days" },
     { name: "realisedAmount", label: "Realised (₹)", type: "calculated", unit: "₹" },
@@ -688,6 +755,90 @@ export const TradeModal: React.FC<TradeModalProps> = React.memo(({
             </ModalHeader>
             <Divider />
             <ModalBody>
+              {/* Summary Card Section: Show key calculated metrics at the top */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                <div className="p-3 rounded-md bg-default-100 border border-default-200">
+                  <div className="text-xs text-foreground-400 mb-1">Avg. Entry (₹)</div>
+                  <div className="font-semibold">{formData.avgEntry?.toFixed(2) ?? '0.00'}</div>
+                </div>
+                <div className="p-3 rounded-md bg-default-100 border border-default-200">
+                  <div className="text-xs text-foreground-400 mb-1">Position Size (₹)</div>
+                  <div className="font-semibold">{formData.positionSize?.toFixed(2) ?? '0.00'}</div>
+                </div>
+                <div className="p-3 rounded-md bg-default-100 border border-default-200">
+                  <div className="text-xs text-foreground-400 mb-1">Allocation (%)</div>
+                  <div className="font-semibold">{formData.allocation?.toFixed(2) ?? '0.00'}%</div>
+                </div>
+                <div className="p-3 rounded-md bg-default-100 border border-default-200">
+                  <div className="text-xs text-foreground-400 mb-1">Open Qty (qty)</div>
+                  <div className="font-semibold">{formData.openQty ?? 0}</div>
+                </div>
+                <div className="p-3 rounded-md bg-default-100 border border-default-200">
+                  <div className="text-xs text-foreground-400 mb-1">Exited Qty (qty)</div>
+                  <div className="font-semibold">{formData.exitedQty ?? 0}</div>
+                </div>
+                <div className="p-3 rounded-md bg-default-100 border border-default-200">
+                  <div className="text-xs text-foreground-400 mb-1">Avg. Exit (₹)</div>
+                  <div className="font-semibold">{formData.avgExitPrice?.toFixed(2) ?? '0.00'}</div>
+                </div>
+                <div className="p-3 rounded-md bg-default-100 border border-default-200">
+                  <div className="text-xs text-foreground-400 mb-1">Stock Move (₹)</div>
+                  <div className="font-semibold">{formData.stockMove?.toFixed(2) ?? '0.00'}</div>
+                </div>
+                <div className="p-3 rounded-md bg-default-100 border border-default-200">
+                  <div className="text-xs text-foreground-400 mb-1">SL (%)</div>
+                  <div className="font-semibold">{formData.slPercent?.toFixed(2) ?? '0.00'}%</div>
+                </div>
+                <div className="p-3 rounded-md bg-default-100 border border-default-200">
+                  <div className="text-xs text-foreground-400 mb-1">Reward/Risk (x)</div>
+                  <div className="font-semibold">{formData.rewardRisk?.toFixed(2) ?? '0.00'}</div>
+                </div>
+                <div className="p-3 rounded-md bg-default-100 border border-default-200">
+                  <div className="text-xs text-foreground-400 mb-1">Holding Days</div>
+                  <div className="font-semibold">{formData.holdingDays ?? 0}</div>
+                </div>
+                <div className="p-3 rounded-md bg-default-100 border border-default-200">
+                  <div className="text-xs text-foreground-400 mb-1">Realised (₹)</div>
+                  <div className="font-semibold">{formData.realisedAmount?.toFixed(2) ?? '0.00'}</div>
+                </div>
+                {/* FIX: Use plRs for P/L (₹) */}
+                <div className="p-3 rounded-md bg-default-100 border border-default-200">
+                  <div className="text-xs text-foreground-400 mb-1">P/L (₹)</div>
+                  <div className="font-semibold">{formData.plRs?.toFixed(2) ?? '0.00'}</div>
+                </div>
+                <div className="p-3 rounded-md bg-default-100 border border-default-200">
+                  <div className="text-xs text-foreground-400 mb-1">PF Impact (%)</div>
+                  <div className="font-semibold">{formData.pfImpact?.toFixed(2) ?? '0.00'}%</div>
+                </div>
+                <div className="p-3 rounded-md bg-default-100 border border-default-200">
+                  <div className="text-xs text-foreground-400 mb-1">Cumulative PF (%)</div>
+                  <div className="font-semibold">{formData.cummPf?.toFixed(2) ?? '0.00'}%</div>
+                </div>
+              </div>
+
+              {/* Add Validation Messages below summary cards */}
+              {validationIssues.length > 0 && (
+                <div className="mb-6">
+                  {validationIssues.map((issue, index) => (
+                    <div
+                      key={index}
+                      className={`p-3 rounded-md mb-2 flex items-center gap-2 ${
+                        issue.type === 'error' 
+                          ? 'bg-danger-50 border border-danger-200 text-danger-700'
+                          : 'bg-warning-50 border border-warning-200 text-warning-700'
+                      }`}
+                    >
+                      <Icon 
+                        icon={issue.type === 'error' ? "lucide:alert-circle" : "lucide:alert-triangle"} 
+                        className={issue.type === 'error' ? "text-danger-500" : "text-warning-500"}
+                      />
+                      <span className="text-sm">{issue.message}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Form Fields */}
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div
                   key={activeTab}
@@ -698,18 +849,6 @@ export const TradeModal: React.FC<TradeModalProps> = React.memo(({
                   className="transform-gpu"
                 >
                   {renderFields()}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-                    {calculatedFields.map(field => (
-                      <Input
-                        key={field.name}
-                        label={field.label}
-                        value={formData[field.name]?.toString() ?? ""}
-                        variant="bordered"
-                        isReadOnly
-                        className="transform-gpu"
-                      />
-                    ))}
-                  </div>
                 </motion.div>
               </AnimatePresence>
             </ModalBody>
@@ -721,6 +860,7 @@ export const TradeModal: React.FC<TradeModalProps> = React.memo(({
                 <Button 
                   color="primary" 
                 onPress={handleSubmit}
+                  isDisabled={validationIssues.some(issue => issue.type === 'error')}
                   startContent={<Icon icon={mode === "add" ? "lucide:plus" : "lucide:save"} />}
                 >
                   {mode === "add" ? "Add Trade" : "Save Changes"}

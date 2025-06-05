@@ -21,12 +21,25 @@ import { PerformanceChart } from "./analytics/performance-chart";
 import { useTrades } from "../hooks/use-trades";
 import { pageVariants, cardVariants, fadeInVariants } from "../utils/animations";
 
+interface ChartDataPoint {
+  month: string;
+  capital: number;
+  pl: number;
+  plPercentage: number;
+  startingCapital?: number;
+}
+
 export const TradeAnalytics = React.memo(function TradeAnalytics() {
   const { trades } = useTrades();
   const [selectedPeriod, setSelectedPeriod] = React.useState("YTD");
   const [selectedView, setSelectedView] = React.useState("performance");
+  const [chartData, setChartData] = React.useState<ChartDataPoint[]>([]);
   
   const periods = ["1W", "1M", "3M", "6M", "YTD", "1Y", "ALL"];
+  
+  const handleChartDataUpdate = React.useCallback((data: ChartDataPoint[]) => {
+    setChartData(data);
+  }, []);
   
   return (
     <motion.div 
@@ -40,47 +53,7 @@ export const TradeAnalytics = React.memo(function TradeAnalytics() {
         className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
         variants={fadeInVariants}
       >
-        <div></div>
-        <motion.div 
-          className="flex items-center gap-3"
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.4 }}
-        >
-          <Dropdown>
-            <DropdownTrigger>
-              <Button 
-                variant="flat" 
-                endContent={<Icon icon="lucide:chevron-down" className="text-sm" />}
-                size="sm"
-                className="font-medium"
-              >
-                {selectedPeriod}
-              </Button>
-            </DropdownTrigger>
-            <DropdownMenu 
-              aria-label="Time period selection" 
-              selectionMode="single"
-              selectedKeys={[selectedPeriod]}
-              onSelectionChange={(keys) => {
-                const selected = Array.from(keys)[0] as string;
-                setSelectedPeriod(selected);
-              }}
-            >
-              {periods.map((period) => (
-                <DropdownItem key={period}>{period}</DropdownItem>
-              ))}
-            </DropdownMenu>
-          </Dropdown>
-          <Button
-            variant="flat"
-            startContent={<Icon icon="lucide:download" />}
-            size="sm"
-            className="font-medium"
-          >
-            Export
-          </Button>
-        </motion.div>
+        {/* Removed ALL dropdown and Export button as requested */}
       </motion.div>
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -98,13 +71,34 @@ export const TradeAnalytics = React.memo(function TradeAnalytics() {
                 <h3 className="text-xl font-semibold tracking-tight">Portfolio Performance</h3>
                 <div className="flex items-center gap-3">
                   <motion.div 
-                    className="flex items-center gap-1.5 bg-success-50 dark:bg-success-900/10 px-2 py-1 rounded-md"
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded-md ${
+                      chartData.length > 0 && chartData[chartData.length - 1].plPercentage >= 0 
+                        ? 'bg-success-50 dark:bg-success-900/10' 
+                        : 'bg-danger-50 dark:bg-danger-900/10'
+                    }`}
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: 0.2, type: "spring" }}
                   >
-                    <Icon icon="lucide:trending-up" className="text-success-600 dark:text-success-400" />
-                    <span className="text-sm text-success-600 dark:text-success-400 font-medium">+6.54%</span>
+                    <Icon 
+                      icon={chartData.length > 0 && chartData[chartData.length - 1].plPercentage >= 0 
+                        ? "lucide:trending-up" 
+                        : "lucide:trending-down"} 
+                      className={chartData.length > 0 && chartData[chartData.length - 1].plPercentage >= 0 
+                        ? "text-success-600 dark:text-success-400" 
+                        : "text-danger-600 dark:text-danger-400"} 
+                    />
+                    <span 
+                      className={`text-sm font-medium ${
+                        chartData.length > 0 && chartData[chartData.length - 1].plPercentage >= 0 
+                          ? 'text-success-600 dark:text-success-400' 
+                          : 'text-danger-600 dark:text-danger-400'
+                      }`}
+                    >
+                      {chartData && chartData.length > 0 
+                        ? `${chartData[chartData.length - 1].plPercentage >= 0 ? '+' : ''}${chartData[chartData.length - 1].plPercentage.toFixed(2)}%`
+                        : '0.00%'}
+                    </span>
                   </motion.div>
                   <span className="text-sm text-default-500 font-medium min-w-[40px] text-center">{selectedPeriod}</span>
                 </div>
@@ -119,7 +113,10 @@ export const TradeAnalytics = React.memo(function TradeAnalytics() {
                   exit={{ opacity: 0, x: -20 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <PerformanceChart trades={trades} />
+                  <PerformanceChart 
+                    trades={trades} 
+                    onDataUpdate={handleChartDataUpdate}
+                  />
                 </motion.div>
               </AnimatePresence>
             </CardBody>

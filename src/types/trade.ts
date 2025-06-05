@@ -34,7 +34,6 @@ export interface Trade {
   exitedQty: number;
   avgExitPrice: number;
   stockMove: number;
-  openHeat: number;
   rewardRisk: number;
   holdingDays: number;
   positionStatus: "Open" | "Closed" | "Partial";
@@ -45,6 +44,7 @@ export interface Trade {
   planFollowed: boolean;
   exitTrigger: string;
   proficiencyGrowthAreas: string;
+  openHeat: number;
 }
 
 export interface CapitalChange {
@@ -63,4 +63,10 @@ export interface MonthlyCapital {
   withdrawals: number;
   pl: number;
   finalCapital: number;
+}
+
+export interface MonthlyCapitalHistory {
+  month: string; // e.g. 'Jan'
+  year: number;
+  startingCapital: number;
 }

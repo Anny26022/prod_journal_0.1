@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback } from "react";
 import {
   Modal,
   ModalContent,
@@ -153,6 +153,33 @@ export const TaxEditModal: React.FC<TaxEditModalProps> = ({
       ].forEach(suffix => sessionStorage.removeItem(sessionKey + suffix));
     }
   }, [isOpen, sessionKey]);
+  
+  // Save tax data to localStorage when saving changes
+  const handleSaveChanges = useCallback(() => {
+    if (!month) return;
+    
+    // Get the selected year from the URL or use current year as fallback
+    const pathParts = window.location.pathname.split('/');
+    const yearFromUrl = pathParts[pathParts.length - 1];
+    const selectedYear = yearFromUrl && !isNaN(Number(yearFromUrl)) ? yearFromUrl : new Date().getFullYear().toString();
+    
+    // Get existing tax data from localStorage
+    const savedTaxData = localStorage.getItem('taxData');
+    const currentData = savedTaxData ? JSON.parse(savedTaxData) : {};
+    
+    // Update the tax data for the selected year and month
+    currentData[selectedYear] = currentData[selectedYear] || {};
+    currentData[selectedYear][month] = taxes;
+    
+    // Save back to localStorage
+    localStorage.setItem('taxData', JSON.stringify(currentData));
+    
+    // Close the modal
+    onOpenChange(false);
+    
+    // Force refresh the parent component to reflect changes
+    window.dispatchEvent(new Event('storage'));
+  }, [month, taxes, onOpenChange]);
 
   // Calculate Net P/L and Tax Percentage
   const netPL = grossPL - taxes;
@@ -361,7 +388,7 @@ export const TaxEditModal: React.FC<TaxEditModalProps> = ({
               </Button>
               <Button 
                 color="primary" 
-                onPress={onClose}
+                onPress={handleSaveChanges}
                 startContent={<Icon icon="lucide:save" />}
               >
                 Save Changes

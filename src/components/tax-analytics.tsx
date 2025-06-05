@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback } from "react";
 import { 
   Card, 
   CardBody, 
@@ -93,14 +93,92 @@ export const TaxAnalytics: React.FC = () => {
   const [selectedMonth, setSelectedMonth] = React.useState<string | null>(null);
   const monthOrder = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   const [taxesByMonth, setTaxesByMonth] = React.useState<{ [month: string]: number }>({});
+  
+  // Function to load tax data for the selected year
+  const loadTaxData = useCallback(() => {
+    const savedTaxData = localStorage.getItem('taxData');
+    if (savedTaxData) {
+      try {
+        const parsedData = JSON.parse(savedTaxData);
+        const yearData = parsedData[selectedYear] || {};
+        
+        // Only update if we have data for this year
+        if (Object.keys(yearData).length > 0) {
+          setTaxesByMonth(prev => ({
+            ...prev,
+            ...yearData
+          }));
+        } else {
+          // Initialize with empty data for this year if it doesn't exist
+          const initialData: { [month: string]: number } = {};
+          monthOrder.forEach(month => {
+            initialData[month] = 0;
+          });
+          setTaxesByMonth(initialData);
+        }
+      } catch (e) {
+        console.error('Failed to parse saved tax data', e);
+      }
+    } else {
+      // Initialize with empty data if no saved data exists
+      const initialData: { [month: string]: number } = {};
+      monthOrder.forEach(month => {
+        initialData[month] = 0;
+      });
+      setTaxesByMonth(initialData);
+    }
+  }, [selectedYear]);
+
+  // Load tax data on mount and when selectedYear changes
+  React.useEffect(() => {
+    loadTaxData();
+    
+    // Add event listener for storage changes
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'taxData') {
+        loadTaxData();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Cleanup
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [loadTaxData]);
+  
+  // Save tax data to localStorage when it changes
+  React.useEffect(() => {
+    if (Object.keys(taxesByMonth).length > 0 && selectedYear) {
+      const savedTaxData = localStorage.getItem('taxData');
+      const currentData = savedTaxData ? JSON.parse(savedTaxData) : {};
+      
+      // Only update the current year's data
+      currentData[selectedYear] = {
+        ...taxesByMonth
+      };
+      
+      localStorage.setItem('taxData', JSON.stringify(currentData));
+    }
+  }, [taxesByMonth, selectedYear]);
+  
+  // Initialize months with 0 if they don't exist
   React.useEffect(() => {
     const initial: { [month: string]: number } = {};
+    let needsUpdate = false;
+    
     monthOrder.forEach(month => {
-      if (!(month in taxesByMonth)) initial[month] = 0;
+      if (!(month in taxesByMonth)) {
+        initial[month] = 0;
+        needsUpdate = true;
+      }
     });
-    if (Object.keys(initial).length > 0) setTaxesByMonth(prev => ({ ...initial, ...prev }));
-    // eslint-disable-next-line
-  }, [trades]);
+    
+    if (needsUpdate) {
+      setTaxesByMonth(prev => ({ ...initial, ...prev }));
+    }
+  }, [trades, taxesByMonth]);
 
   const tradesForYear = trades.filter(t => t.date.startsWith(selectedYear));
   const closedTrades = tradesForYear

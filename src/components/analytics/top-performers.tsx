@@ -10,6 +10,7 @@ import {
 import { Icon } from "@iconify/react";
 import { motion } from "framer-motion";
 import { Trade } from "../../types/trade";
+import { calcWeightedRewardRisk } from '../../utils/tradeCalculations';
 
 interface TopPerformerProps {
   label: string;
@@ -191,8 +192,14 @@ export const TopPerformers: React.FC<TopPerformersProps> = ({ trades }) => {
     if (!filteredTrades.length) return { top: null, bottom: null };
 
     const sortedTrades = [...filteredTrades].sort((a, b) => {
-      const aValue = a[metricFilter] || 0;
-      const bValue = b[metricFilter] || 0;
+      let aValue, bValue;
+      if (metricFilter === 'rewardRisk') {
+        aValue = calcWeightedRewardRisk(a);
+        bValue = calcWeightedRewardRisk(b);
+      } else {
+        aValue = a[metricFilter] || 0;
+        bValue = b[metricFilter] || 0;
+      }
       return bValue - aValue;
     });
 
@@ -203,14 +210,17 @@ export const TopPerformers: React.FC<TopPerformersProps> = ({ trades }) => {
   }, [filteredTrades, metricFilter]);
 
   // Format metric value based on type
-  const formatMetricValue = (value: number) => {
-    if (metricFilter === "plRs") {
+  const formatMetricValue = (value: number, trade?: Trade) => {
+    if (metricFilter === 'plRs') {
       return new Intl.NumberFormat('en-IN', {
         style: 'currency',
         currency: 'INR',
         minimumFractionDigits: 0,
         maximumFractionDigits: 0
       }).format(value);
+    }
+    if (metricFilter === 'rewardRisk' && trade) {
+      return calcWeightedRewardRisk(trade).toFixed(2);
     }
     return value.toFixed(2);
   };
@@ -309,7 +319,7 @@ export const TopPerformers: React.FC<TopPerformersProps> = ({ trades }) => {
       <div className="space-y-2">
         <TopPerformer 
           label={`Highest ${getMetricLabel()}`}
-          value={formatMetricValue(top[metricFilter] || 0)}
+          value={formatMetricValue(metricFilter === 'rewardRisk' ? calcWeightedRewardRisk(top) : top[metricFilter] || 0, top)}
           stock={top.name}
           date={top.date}
           isPercentage={metricFilter !== "plRs" && metricFilter !== "rewardRisk"}
@@ -318,7 +328,7 @@ export const TopPerformers: React.FC<TopPerformersProps> = ({ trades }) => {
         />
         <TopPerformer 
           label={`Lowest ${getMetricLabel()}`}
-          value={formatMetricValue(bottom[metricFilter] || 0)}
+          value={formatMetricValue(metricFilter === 'rewardRisk' ? calcWeightedRewardRisk(bottom) : bottom[metricFilter] || 0, bottom)}
           stock={bottom.name}
           date={bottom.date}
           isPercentage={metricFilter !== "plRs" && metricFilter !== "rewardRisk"}

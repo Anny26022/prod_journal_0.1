@@ -32,19 +32,37 @@ interface MonthlyData {
 
 export const MonthlyPerformanceTable: React.FC = () => {
   const { trades } = useTrades();
-  const { portfolioSize } = usePortfolio();
-  const { monthlyCapital, capitalChanges, addCapitalChange, updateCapitalChange } = useCapitalChanges(trades, portfolioSize);
-  const [yearlyStartingCapital, setYearlyStartingCapital] = React.useState(portfolioSize);
+  const { getPortfolioSize, setPortfolioSize, getLatestPortfolioSize, monthlyPortfolioSizes } = usePortfolio();
+  
+  // Debug: Log trades data
+  React.useEffect(() => {
+    console.log('Total trades loaded:', trades.length);
+    console.log('Trades sample:', trades.slice(0, 3)); // First 3 trades
+  }, safeDeps([trades]));
+  const { monthlyCapital, capitalChanges, addCapitalChange, updateCapitalChange, setMonthlyStartingCapital, deleteCapitalChange } = useCapitalChanges(trades, getLatestPortfolioSize());
+  const [yearlyStartingCapital, setYearlyStartingCapital] = React.useState(getLatestPortfolioSize());
 
   // Inline editing state
   const [editingCell, setEditingCell] = React.useState<{ row: number; col: string } | null>(null);
   const [editingValue, setEditingValue] = React.useState<string>("");
 
+  // Add global year picker state
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = React.useState<number>(currentYear);
+
   // Build monthly data from trades with proper date handling
   const monthOrder = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const monthlyMap: Record<string, { trades: typeof trades; date: Date }> = {};
   
-  trades.forEach(trade => {
+  // Filter trades by selected year first
+  const filteredTrades = trades.filter(trade => {
+    if (!trade.date) return false;
+    const tradeYear = new Date(trade.date).getFullYear();
+    return tradeYear === selectedYear;
+  });
+
+  // Then group by month
+  filteredTrades.forEach(trade => {
     const d = new Date(trade.date);
     const month = d.toLocaleString('default', { month: 'short' });
     if (!monthlyMap[month]) {
@@ -58,7 +76,10 @@ export const MonthlyPerformanceTable: React.FC = () => {
     monthData.trades.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   });
 
-  // Calculate initial monthly data with rolling capital
+  // Filter or map all table logic to use selectedYear
+  const filteredMonthlyCapital = monthlyCapital.filter(mc => mc.year === selectedYear);
+
+  // Build monthly data for the selected year
   const initialMonthlyData = monthOrder.map((month, i) => {
     const monthData = monthlyMap[month] || { trades: [], date: new Date() };
     const monthTrades = monthData.trades;
@@ -72,7 +93,9 @@ export const MonthlyPerformanceTable: React.FC = () => {
     const avgHoldingDays = tradesCount > 0 ? monthTrades.reduce((sum, t) => sum + (t.holdingDays || 0), 0) / tradesCount : 0;
 
     // Find corresponding monthly capital data
-    const monthCapital = monthlyCapital.find(mc => mc.month === month) || {
+    const monthCapital = filteredMonthlyCapital.find(mc => mc.month === month) || {
+      month,
+      year: selectedYear,
       startingCapital: 0,
       deposits: 0,
       withdrawals: 0,
@@ -80,11 +103,32 @@ export const MonthlyPerformanceTable: React.FC = () => {
       finalCapital: 0
     };
 
+    // Get capital changes for this month and year
+    const monthCapitalChanges = capitalChanges.filter(change => {
+      const changeDate = new Date(change.date);
+      return changeDate.getMonth() === monthOrder.indexOf(month) && 
+             changeDate.getFullYear() === selectedYear;
+    });
+
+    // Calculate net added/withdrawn from capital changes
+    let netAddedWithdrawn = 0;
+    monthCapitalChanges.forEach(change => {
+      netAddedWithdrawn += change.type === 'deposit' ? change.amount : -change.amount;
+    });
+
+    // If no capital changes, fall back to the monthly capital data
+    if (monthCapitalChanges.length === 0) {
+      netAddedWithdrawn = monthCapital.deposits - monthCapital.withdrawals;
+    }
+
     // For months with no trades, show '-' for most stats and set finalCapital to 0
+    // Use the starting capital from monthlyCapital which includes the net deposits/withdrawals
+    const adjustedStartingCapital = monthCapital.startingCapital || getPortfolioSize(month, selectedYear);
+    
     return {
       month,
-      addedWithdrawn: monthCapital.deposits - monthCapital.withdrawals,
-      startingCapital: monthCapital.startingCapital,
+      addedWithdrawn: netAddedWithdrawn,
+      startingCapital: adjustedStartingCapital,
       pl: tradesCount > 0 ? monthCapital.pl : '-',
       plPercentage: tradesCount > 0 ? 0 : '-',
       finalCapital: tradesCount > 0 ? monthCapital.finalCapital : 0,
@@ -107,11 +151,11 @@ export const MonthlyPerformanceTable: React.FC = () => {
 
   // Effect to update yearly starting capital when portfolio size changes
   React.useEffect(() => {
-    setYearlyStartingCapital(portfolioSize);
-  }, [portfolioSize]);
+    setYearlyStartingCapital(getLatestPortfolioSize());
+  }, safeDeps([getLatestPortfolioSize]));
 
   const computedData = React.useMemo(() => {
-    const currentYear = new Date().getFullYear();
+    const currentYear = selectedYear; // Use the selected year instead of current year
     
     return initialMonthlyData.map((row, i) => {
       const startingCapital = row.startingCapital;
@@ -200,7 +244,7 @@ export const MonthlyPerformanceTable: React.FC = () => {
         rollingReturn12M: xirr12M
       };
     });
-  }, [initialMonthlyData, yearlyStartingCapital, capitalChanges, monthOrder]);
+  }, safeDeps([initialMonthlyData, yearlyStartingCapital, capitalChanges, monthOrder]));
   
   // Ensure we have valid data before rendering the table
   if (!computedData || computedData.length === 0) {
@@ -217,45 +261,132 @@ export const MonthlyPerformanceTable: React.FC = () => {
     return new Date(year, monthIndex, 1).toISOString();
   };
 
+  // Helper to get all years from 2000 to current year+1
+  const getYearOptions = () => {
+    const years = [];
+    for (let y = 2000; y <= currentYear + 1; y++) {
+      years.push(y);
+    }
+    return years;
+  };
+
   // Handler for saving the edited value
   const handleSaveAddedWithdrawn = (rowIndex: number, month: string, year: number) => {
     const value = Number(editingValue);
     if (isNaN(value)) return;
-    // Find if a capital change exists for this month
-    const monthDate = getMonthDateString(month, year);
+    
+    // Get the month index (0-11)
+    const monthIndex = monthOrder.indexOf(month);
+    if (monthIndex === -1) return;
+    
+    // Always use selectedYear for the year
+    year = selectedYear;
+    
+    // Check if starting capital is set for this month (either manually or automatically)
+    const monthData = computedData[rowIndex];
+    const startingCapital = monthData.startingCapital;
+    
+    // If starting capital is 0 or not set, show the error
+    if (typeof startingCapital !== 'number' || startingCapital <= 0) {
+      alert('Please set the Starting Capital before adding/withdrawing funds.\n\nClick on the Starting Capital field first to set it.');
+      // Move focus to the starting capital cell
+      const startingCapitalColIndex = columns.findIndex(col => col.key === 'startingCapital');
+      if (startingCapitalColIndex !== -1) {
+        setEditingCell({ row: rowIndex, col: 'startingCapital' });
+        setEditingValue('');
+      } else {
+        setEditingCell(null);
+        setEditingValue('');
+      }
+      return;
+    }
+    
+    const monthDate = new Date(year, monthIndex, 1);
+    const formattedDate = monthDate.toISOString();
+    
     // Find any capital change for this month (assume only one per month for this UI)
     const existingChange = capitalChanges.find(change => {
       const d = new Date(change.date);
-      return d.getFullYear() === year && d.getMonth() === new Date(monthDate).getMonth();
+      return d.getFullYear() === year && d.getMonth() === monthIndex;
     });
+
+    // Get the current portfolio size for this month
+    const currentPortfolioSize = getPortfolioSize(month, year);
+    
     if (existingChange) {
-      // Update
+      // Calculate the difference to adjust the portfolio size
+      const oldAmount = existingChange.type === 'deposit' 
+        ? existingChange.amount 
+        : -existingChange.amount;
+      const newAmount = value; // value can be positive or negative
+      const difference = newAmount - oldAmount;
+      
+      // Update the portfolio size by the difference
+      const newPortfolioSize = currentPortfolioSize + difference;
+      setPortfolioSize(newPortfolioSize, month, year);
+      
+      // Update the capital change
       updateCapitalChange({
         ...existingChange,
         amount: Math.abs(value),
         type: value >= 0 ? 'deposit' : 'withdrawal',
-        date: monthDate,
+        date: formattedDate,
         description: 'Manual edit from performance table'
       });
-    } else {
-      // Add
+    } else if (value !== 0) {
+      // Only add if value is not zero
+      // Update the portfolio size by the new amount
+      const newPortfolioSize = currentPortfolioSize + value;
+      setPortfolioSize(newPortfolioSize, month, year);
+      
+      // Add new capital change
       addCapitalChange({
         amount: Math.abs(value),
         type: value >= 0 ? 'deposit' : 'withdrawal',
-        date: monthDate,
+        date: formattedDate,
         description: 'Manual edit from performance table'
       });
+    } else if (value === 0 && existingChange) {
+      // If setting to zero and there's an existing change, remove it
+      // and adjust the portfolio size back
+      const oldAmount = existingChange.type === 'deposit' 
+        ? existingChange.amount 
+        : -existingChange.amount;
+      const newPortfolioSize = currentPortfolioSize - oldAmount;
+      setPortfolioSize(newPortfolioSize, month, year);
+      
+      // Delete the existing change
+      deleteCapitalChange(existingChange.id);
     }
+    
     setEditingCell(null);
     setEditingValue("");
   };
+
   const columns = [
     {
       key: 'month',
       label: (
         <div className="flex items-center gap-1">
           Month
-          <Tooltip content="Calendar month for the data row." placement="top">
+        </div>
+      )
+    },
+    {
+      key: 'startingCapital',
+      label: (
+        <div className="flex items-center gap-1">
+          Starting Capital
+          <Tooltip content={
+        <div className="max-w-xs text-xs p-1">
+          <div>Capital at the start of the month, before trades and capital changes.</div>
+          <div className="mt-2 font-semibold">Formula:</div>
+          <div>Previous Month's Final Capital + Net Capital Changes</div>
+          <div className="text-foreground-400 mt-1">Where:</div>
+          <div>• Previous Month's Final Capital = Starting Capital + P/L + (Added - Withdrawn)</div>
+          <div>• Net Capital Changes = Sum of all deposits - Sum of all withdrawals</div>
+        </div>
+      } placement="top">
             <Icon icon="lucide:info" className="text-base text-foreground-400 cursor-pointer" />
           </Tooltip>
         </div>
@@ -276,17 +407,6 @@ export const MonthlyPerformanceTable: React.FC = () => {
             }
             placement="top"
           >
-            <Icon icon="lucide:info" className="text-base text-foreground-400 cursor-pointer" />
-          </Tooltip>
-        </div>
-      )
-    },
-    {
-      key: 'startingCapital',
-      label: (
-        <div className="flex items-center gap-1">
-          Starting Capital
-          <Tooltip content="Capital at the start of the month, before trades and capital changes." placement="top">
             <Icon icon="lucide:info" className="text-base text-foreground-400 cursor-pointer" />
           </Tooltip>
         </div>
@@ -319,7 +439,16 @@ export const MonthlyPerformanceTable: React.FC = () => {
       label: (
         <div className="flex items-center gap-1">
           Final Capital
-          <Tooltip content="Capital at the end of the month, after trades and capital changes." placement="top">
+          <Tooltip 
+            content={
+              <div className="max-w-xs p-2">
+                <p className="font-semibold mb-1">Final Capital Calculation:</p>
+                <p className="text-sm">Starting Capital + P/L + (Added - Withdrawn)</p>
+                <p className="text-xs mt-2 text-foreground-500">Note: Please ensure Starting Capital is set before adding/withdrawing funds.</p>
+              </div>
+            } 
+            placement="top"
+          >
             <Icon icon="lucide:info" className="text-base text-foreground-400 cursor-pointer" />
           </Tooltip>
         </div>
@@ -511,8 +640,62 @@ export const MonthlyPerformanceTable: React.FC = () => {
     },
   ];
 
+  // Track the previous editingCell to only update editingValue when editing a new cell
+  const prevEditingCell = React.useRef(editingCell);
+
+  React.useEffect(() => {
+    // Only run when editingCell changes to a new cell
+    if (
+      editingCell &&
+      editingCell.col === 'addedWithdrawn' &&
+      (prevEditingCell.current?.row !== editingCell.row || prevEditingCell.current?.col !== editingCell.col)
+    ) {
+      const rowIndex = editingCell.row;
+      const item = computedData[rowIndex];
+      if (!item) return;
+      const month = item.month;
+      const monthCapital = monthlyCapital.find(mc => mc.month === month);
+      const year = monthCapital ? monthCapital.year : new Date().getFullYear();
+      const existingChange = capitalChanges.find(change => {
+        const d = new Date(change.date);
+        return d.getMonth() === monthOrder.indexOf(month) && d.getFullYear() === year;
+      });
+      if (existingChange) {
+        const sign = existingChange.type === 'deposit' ? 1 : -1;
+        setEditingValue(String(existingChange.amount * sign));
+      } else {
+        setEditingValue('');
+      }
+    }
+    prevEditingCell.current = editingCell;
+  }, safeDeps([editingCell, computedData, capitalChanges, monthlyCapital]));
+
   return (
     <div className="flex flex-col gap-6">
+      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+        <div className="flex items-start gap-2">
+          <Icon icon="lucide:info" className="text-blue-500 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-medium text-blue-800 dark:text-blue-200">Important Note:</p>
+            <p className="text-sm text-blue-700 dark:text-blue-300">
+              Please ensure you set the <span className="font-semibold">Starting Capital</span> for each month before making any changes to the <span className="font-semibold">Added/Withdrawn</span> field. The Starting Capital is used as the base for all calculations.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 mb-2">
+        <label htmlFor="year-picker" className="font-medium">Year:</label>
+        <select
+          id="year-picker"
+          value={selectedYear}
+          onChange={e => setSelectedYear(Number(e.target.value))}
+          style={{ height: 32, borderRadius: 6, border: '1px solid #ccc', padding: '0 8px', fontSize: 16 }}
+        >
+          {getYearOptions().map(y => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
+      </div>
       <div className="overflow-x-auto rounded-lg border border-default-200 dark:border-default-100">
         <Table 
           aria-label="Monthly performance table"
@@ -542,30 +725,54 @@ export const MonthlyPerformanceTable: React.FC = () => {
                     // Find the year for this month from monthlyCapital
                     const monthCapital = monthlyCapital.find(mc => mc.month === item.month);
                     const year = monthCapital ? monthCapital.year : new Date().getFullYear();
-                        return (
-                      <TableCell key={`${item.month}-${String(columnKey)}`}> 
+                    
+                    // Find existing capital change for this month to pre-fill the value
+                    const existingChange = capitalChanges.find(change => {
+                      const d = new Date(change.date);
+                      return d.getMonth() === monthOrder.indexOf(item.month) && 
+                             d.getFullYear() === year;
+                    });
+                    
+                    return (
+                      <TableCell key={`${item.month}-${String(columnKey)}`}>
+                        <div className="flex items-center gap-2">
                           <Input
                             autoFocus
                             size="sm"
                             variant="bordered"
-                          value={editingValue}
-                          onChange={e => setEditingValue(e.target.value)}
-                          onBlur={() => handleSaveAddedWithdrawn(rowIndex, item.month, year)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') {
-                              handleSaveAddedWithdrawn(rowIndex, item.month, year);
-                            }
-                          }}
-                            classNames={{
-                              inputWrapper: "h-8 min-h-0 bg-background dark:bg-default-100 border-default-300 dark:border-default-700 hover:border-primary dark:hover:border-primary focus-within:border-primary dark:focus-within:border-primary",
-                              input: "text-sm text-foreground dark:text-foreground-200"
+                            type="number"
+                            value={editingValue}
+                            onChange={e => setEditingValue(e.target.value)}
+                            onBlur={() => handleSaveAddedWithdrawn(rowIndex, item.month, year)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                handleSaveAddedWithdrawn(rowIndex, item.month, year);
+                              } else if (e.key === 'Escape') {
+                                setEditingCell(null);
+                                setEditingValue('');
+                              }
                             }}
+                            className="h-8 w-32 min-w-[8rem] bg-background dark:bg-default-100 border border-default-300 dark:border-default-700 hover:border-primary dark:hover:border-primary focus:border-primary dark:focus:border-primary text-sm text-foreground dark:text-foreground-200 text-right"
+                            startContent={
+                              <span className="text-foreground-500 text-sm pr-1">₹</span>
+                            }
                           />
+                          <Tooltip content="Save changes" placement="top">
+                            <Button
+                              isIconOnly
+                              size="sm"
+                              variant="light"
+                              onPress={() => handleSaveAddedWithdrawn(rowIndex, item.month, year)}
+                            >
+                              <Icon icon="lucide:check" className="h-4 w-4 text-success-500" />
+                            </Button>
+                          </Tooltip>
+                        </div>
                       </TableCell>
-                        );
-                      }
+                    );
+                  }
                   const numValue = Number(value);
-                      return (
+                  return (
                     <TableCell
                       key={`${item.month}-${String(columnKey)}`}
                       className="cursor-pointer"
@@ -574,15 +781,11 @@ export const MonthlyPerformanceTable: React.FC = () => {
                         setEditingValue(numValue === 0 ? "" : String(numValue));
                       }}
                     >
-                      <motion.div whileHover={{ scale: 1.02 }} transition={{ type: 'spring', stiffness: 400, damping: 10 }}>
-                        {numValue === 0 ? (
-                          <span className="text-foreground-500 dark:text-foreground-400">-</span>
-                        ) : (
-                          <span className={numValue < 0 ? "text-danger-600 dark:text-danger-400" : "text-success-600 dark:text-success-400"}>
-                            {numValue < 0 ? `Withdrawn ₹${Math.abs(numValue).toLocaleString()}` : `Added ₹${numValue.toLocaleString()}`}
-                        </span>
-                        )}
-                      </motion.div>
+                      <span className={numValue < 0 ? "text-danger-600 dark:text-danger-400" : "text-success-600 dark:text-success-400"}>
+                        {numValue < 0
+                          ? `Withdrawn ₹${Math.abs(numValue).toLocaleString()}`
+                          : `Added ₹${numValue.toLocaleString()}`}
+                      </span>
                     </TableCell>
                   );
                 }
@@ -657,35 +860,148 @@ export const MonthlyPerformanceTable: React.FC = () => {
                       );
                     }
                     
-                    if (columnKey === 'startingCapital' || columnKey === 'finalCapital') {
-                  return (
-                    <TableCell key={`${item.month}-${String(columnKey)}`}>
-                      <span className="text-foreground dark:text-foreground-200">{value === '-' ? '-' : Number(value).toLocaleString()}</span>
-                    </TableCell>
-                  );
-                }
-                
-                if (columnKey === 'avgHoldingDays') {
-                  return (
-                    <TableCell key={`${item.month}-${String(columnKey)}`}>
-                      {value === '-' ? '-' : Number(value).toFixed(2)}
-                    </TableCell>
-                  );
-                }
-                
-                if (columnKey === 'trades') {
-                  return (
-                    <TableCell key={`${item.month}-${String(columnKey)}`}>
-                      {value === '-' ? '-' : value}
-                    </TableCell>
-                  );
-                }
-                
-                return (
-                  <TableCell key={`${item.month}-${String(columnKey)}`}>
-                    <span className="text-foreground dark:text-foreground-200">{value}</span>
-                    </TableCell>
-                  );
+                    if (columnKey === 'startingCapital') {
+                      const hasCustomSize = monthlyPortfolioSizes.some(
+                        (size) => size.month === item.month && size.year === selectedYear && size.size > 0
+                      );
+                      
+                      if (isEditing) {
+                        return (
+                          <TableCell key={`${item.month}-${String(columnKey)}`}>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                autoFocus
+                                size="sm"
+                                variant="bordered"
+                                value={editingValue}
+                                onChange={e => setEditingValue(e.target.value)}
+                                onBlur={() => {
+                                  const val = Number(editingValue);
+                                  if (!isNaN(val) && val >= 0) {
+                                    setPortfolioSize(val, item.month, selectedYear);
+                                  }
+                                  setEditingCell(null);
+                                  setEditingValue("");
+                                }}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    const val = Number(editingValue);
+                                    if (!isNaN(val) && val >= 0) {
+                                      setPortfolioSize(val, item.month, selectedYear);
+                                    }
+                                    setEditingCell(null);
+                                    setEditingValue("");
+                                  } else if (e.key === 'Escape') {
+                                    setEditingCell(null);
+                                    setEditingValue("");
+                                  }
+                                }}
+                                classNames={{
+                                  inputWrapper: "h-8 min-h-0 bg-background dark:bg-default-100 border-default-300 dark:border-default-700 hover:border-primary dark:hover:border-primary focus-within:border-primary dark:focus-within:border-primary",
+                                  input: "text-sm text-foreground dark:text-foreground-200 text-right"
+                                }}
+                                style={{ width: 120 }}
+                                startContent={
+                                  <span className="text-foreground-500 text-sm pr-1">₹</span>
+                                }
+                              />
+                              <Tooltip content="Click to edit starting capital" placement="top">
+                                <Button
+                                  isIconOnly
+                                  size="sm"
+                                  variant="light"
+                                  onPress={() => {
+                                    const val = Number(editingValue);
+                                    if (!isNaN(val) && val >= 0) {
+                                      setPortfolioSize(val, item.month, selectedYear);
+                                    }
+                                    setEditingCell(null);
+                                    setEditingValue("");
+                                  }}
+                                >
+                                  <Icon icon="lucide:check" className="h-4 w-4 text-success-500" />
+                                </Button>
+                              </Tooltip>
+                            </div>
+                          </TableCell>
+                        );
+                      }
+                      
+                      return (
+                        <TableCell
+                          key={`${item.month}-${String(columnKey)}`}
+                          className="cursor-pointer group"
+                          onClick={() => {
+                            setEditingCell({ row: rowIndex, col: columnKey });
+                            setEditingValue(value === '-' ? '' : String(value));
+                          }}
+                        >
+                          <Tooltip 
+                            content={
+                              hasCustomSize 
+                                ? `Custom portfolio size for ${item.month} ${selectedYear}` 
+                                : `Using ${value === '-' ? 'default' : 'calculated'} portfolio size`
+                            }
+                            placement="top"
+                          >
+                            <motion.div 
+                              whileHover={{ scale: 1.02 }} 
+                              transition={{ type: 'spring', stiffness: 400, damping: 10 }}
+                              className="flex items-center justify-end gap-1.5"
+                            >
+                              {hasCustomSize && (
+                                <span className="text-primary-500 dark:text-primary-400">
+                                  <Icon icon="lucide:star" className="h-3.5 w-3.5" />
+                                </span>
+                              )}
+                              {value === '-' ? (
+                                <span className="text-foreground-500 dark:text-foreground-400">-</span>
+                              ) : (
+                                <>
+                                  <span className="text-foreground-500 text-sm">₹</span>
+                                  <span className={`${hasCustomSize ? 'font-medium text-primary-600 dark:text-primary-400' : 'text-foreground dark:text-foreground-200'}`}>
+                                    {Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                </>
+                              )}
+                              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground-400">
+                                <Icon icon="lucide:edit-2" className="h-3.5 w-3.5" />
+                              </span>
+                            </motion.div>
+                          </Tooltip>
+                        </TableCell>
+                      );
+                    }
+                    
+                    if (columnKey === 'finalCapital') {
+                      return (
+                        <TableCell key={`${item.month}-${String(columnKey)}`}>
+                          <span className="text-foreground dark:text-foreground-200">{value === '-' ? '-' : Number(value).toLocaleString()}</span>
+                        </TableCell>
+                      );
+                    }
+                    
+                    if (columnKey === 'avgHoldingDays') {
+                      return (
+                        <TableCell key={`${item.month}-${String(columnKey)}`}>
+                          {value === '-' ? '-' : Number(value).toFixed(2)}
+                        </TableCell>
+                      );
+                    }
+                    
+                    if (columnKey === 'trades') {
+                      return (
+                        <TableCell key={`${item.month}-${String(columnKey)}`}>
+                          {value === '-' ? '-' : value}
+                        </TableCell>
+                      );
+                    }
+                    
+                    return (
+                      <TableCell key={`${item.month}-${String(columnKey)}`}>
+                        <span className="text-foreground dark:text-foreground-200">{value}</span>
+                      </TableCell>
+                    );
                 }}
               </TableRow>
             )}
@@ -695,3 +1011,8 @@ export const MonthlyPerformanceTable: React.FC = () => {
     </div>
   );
 }; 
+
+// Defensive utility to ensure dependency arrays are always arrays
+function safeDeps(deps: any) {
+  return Array.isArray(deps) ? deps : [];
+} 

@@ -29,7 +29,7 @@ import { useTrades, SortDescriptor } from "../hooks/use-trades";
 import { format } from 'date-fns';
 import { usePortfolio } from "../utils/PortfolioContext";
 import { tableRowVariants, springTransition } from "../utils/animations";
-import { calcSLPercent } from "../utils/tradeCalculations";
+import { calcSLPercent, calcHoldingDays, calcUnrealizedPL, calcRealizedPL_FIFO, calcOpenHeat, calcIndividualMoves } from "../utils/tradeCalculations";
 
 const csvUrl = new URL('/name_sector_industry.csv', import.meta.url).href;
 
@@ -107,7 +107,7 @@ export const TradeJournal = React.memo(function TradeJournal({
     const start = (page - 1) * rowsPerPage;
     const end = start + rowsPerPage;
     return trades.slice(start, end);
-  }, [page, trades, rowsPerPage]);
+  }, [page, trades, rowsPerPage, portfolioSize]);
 
   // Single source of truth for column definitions
   const allColumns = React.useMemo(() => [
@@ -148,14 +148,15 @@ export const TradeJournal = React.memo(function TradeJournal({
     { key: "rewardRisk", label: "R:R", sortable: true },
     { key: "holdingDays", label: "Holding Days", sortable: true },
     { key: "positionStatus", label: "Status", sortable: true },
-    { key: "realisedAmount", label: "Realised (₹)", sortable: true },
-    { key: "plRs", label: "P/L (₹)", sortable: true },
+    { key: "realisedAmount", label: "Realized Amount", sortable: true },
+    { key: "plRs", label: "Realized P/L (₹)", sortable: true },
     { key: "pfImpact", label: "PF Impact (%)", sortable: true },
     { key: "cummPf", label: "Cumm. PF (%)", sortable: true },
     { key: "planFollowed", label: "Plan Followed", sortable: true },
     { key: "exitTrigger", label: "Exit Trigger" },
     { key: "proficiencyGrowthAreas", label: "Growth Areas" },
     { key: "actions", label: "Actions", sortable: false },
+    { key: 'unrealizedPL', label: 'Unrealized P/L', sortable: false },
   ], []);
 
   const headerColumns = React.useMemo(() => {
@@ -197,7 +198,7 @@ export const TradeJournal = React.memo(function TradeJournal({
     'avgEntry', 'positionSize', 'allocation', 'openQty', 'exitedQty',
     'avgExitPrice', 'stockMove', 'slPercent', 'openHeat', 'rewardRisk',
     'holdingDays', 'realisedAmount', 'plRs', 'pfImpact', 'cummPf'
-    // initialQty is now editable
+    // 'initialQty' REMOVED to allow inline editing
   ];
 
   // Check if a field is editable
@@ -231,102 +232,14 @@ export const TradeJournal = React.memo(function TradeJournal({
       const updatedTrade = { ...tradeToUpdate, [field]: parsedValue };
     
       // Recalculate dependent fields if needed
-      if (['entry', 'sl', 'tsl', 'initialQty', 'pyramid1Qty', 'pyramid2Qty', 
-           'exit1Qty', 'exit2Qty', 'exit3Qty', 'pyramid1Price', 'pyramid2Price',
-           'exit1Price', 'exit2Price', 'exit3Price', 'cmp'].includes(field as string)) {
-        
-        // Recalculate position size if quantities or prices change
-        const totalQty = updatedTrade.initialQty + 
-                       (updatedTrade.pyramid1Qty || 0) + 
-                       (updatedTrade.pyramid2Qty || 0);
-        
-        // Recalculate average entry price
-        let totalCost = updatedTrade.entry * updatedTrade.initialQty;
-        let totalQtyCalc = updatedTrade.initialQty;
-        
-        if (updatedTrade.pyramid1Qty && updatedTrade.pyramid1Price) {
-          totalCost += updatedTrade.pyramid1Qty * updatedTrade.pyramid1Price;
-          totalQtyCalc += updatedTrade.pyramid1Qty;
-        }
-        
-        if (updatedTrade.pyramid2Qty && updatedTrade.pyramid2Price) {
-          totalCost += updatedTrade.pyramid2Qty * updatedTrade.pyramid2Price;
-          totalQtyCalc += updatedTrade.pyramid2Qty;
-        }
-        
-        const avgEntry = totalQtyCalc > 0 ? totalCost / totalQtyCalc : 0;
-        updatedTrade.avgEntry = avgEntry;
-        
-        // Recalculate position size
-        updatedTrade.positionSize = avgEntry * totalQty;
-        
-        // Recalculate allocation based on portfolio size
-        updatedTrade.allocation = portfolioSize > 0 ? 
-          (updatedTrade.positionSize / portfolioSize) * 100 : 0;
-        
-        // Recalculate SL percentage
-        if (updatedTrade.entry && updatedTrade.sl) {
-          updatedTrade.slPercent = Math.abs((updatedTrade.entry - updatedTrade.sl) / updatedTrade.entry) * 100;
-        }
-        
-        // Recalculate open and exited quantities
-        const exitedQty = (updatedTrade.exit1Qty || 0) + 
-                         (updatedTrade.exit2Qty || 0) + 
-                         (updatedTrade.exit3Qty || 0);
-        
-        updatedTrade.openQty = Math.max(0, totalQty - exitedQty);
-        updatedTrade.exitedQty = Math.min(totalQty, exitedQty);
-        
-        // Recalculate average exit price if exit quantities or prices change
-        if (['exit1Qty', 'exit2Qty', 'exit3Qty', 'exit1Price', 'exit2Price', 'exit3Price'].includes(field as string)) {
-          let totalExitValue = 0;
-          let totalExitQty = 0;
-          
-          if (updatedTrade.exit1Qty && updatedTrade.exit1Price) {
-            totalExitValue += updatedTrade.exit1Qty * updatedTrade.exit1Price;
-            totalExitQty += updatedTrade.exit1Qty;
-          }
-          
-          if (updatedTrade.exit2Qty && updatedTrade.exit2Price) {
-            totalExitValue += updatedTrade.exit2Qty * updatedTrade.exit2Price;
-            totalExitQty += updatedTrade.exit2Qty;
-          }
-          
-          if (updatedTrade.exit3Qty && updatedTrade.exit3Price) {
-            totalExitValue += updatedTrade.exit3Qty * updatedTrade.exit3Price;
-            totalExitQty += updatedTrade.exit3Qty;
-          }
-          
-          updatedTrade.avgExitPrice = totalExitQty > 0 ? totalExitValue / totalExitQty : 0;
-          
-          // Calculate realised amount and P/L
-          if (totalExitQty > 0) {
-            const entryValue = updatedTrade.avgEntry * totalExitQty;
-            const exitValue = updatedTrade.avgExitPrice * totalExitQty;
-            updatedTrade.realisedAmount = exitValue;
-            updatedTrade.plRs = updatedTrade.buySell === 'Buy' ? 
-              exitValue - entryValue : 
-              entryValue - exitValue;
-              
-            // Calculate portfolio impact
-            updatedTrade.pfImpact = portfolioSize > 0 ? 
-              (updatedTrade.plRs / portfolioSize) * 100 : 0;
-          }
-        }
-        
-        // Calculate stock move if CMP changes
-        if (field === 'cmp' && updatedTrade.cmp && updatedTrade.entry) {
-          updatedTrade.stockMove = ((updatedTrade.cmp - updatedTrade.entry) / updatedTrade.entry) * 100;
-        }
-        
-        // Update position status
-        if (updatedTrade.openQty <= 0) {
-          updatedTrade.positionStatus = 'Closed';
-        } else if (updatedTrade.exitedQty > 0) {
-          updatedTrade.positionStatus = 'Partial';
-        } else {
-          updatedTrade.positionStatus = 'Open';
-        }
+      if ([
+        'entry', 'sl', 'tsl', 'initialQty', 'pyramid1Qty', 'pyramid2Qty', 
+        'exit1Price', 'exit2Price', 'exit3Price', 'cmp'
+      ].includes(field as string)) {
+        // ... existing code ...
+        // Recalculate openHeat for this trade
+        updatedTrade.openHeat = calcTradeOpenHeat(updatedTrade, portfolioSize, getPortfolioSize);
+        // ... existing code ...
       }
 
       // Validation: Pyramid/Exit dates cannot be before entry date
@@ -381,7 +294,13 @@ export const TradeJournal = React.memo(function TradeJournal({
     
     // Format reward/risk ratio
     if (key === 'rewardRisk') {
-      return Number(value).toFixed(2) + 'x';
+      const rr = Number(value);
+      if (rr > 0) {
+        const rrStr = rr % 1 === 0 ? rr.toFixed(0) : rr.toFixed(2);
+        return `1:${rrStr} (${rrStr}R)`;
+      } else {
+        return '-';
+      }
     }
     
     // Format boolean values
@@ -399,8 +318,357 @@ export const TradeJournal = React.memo(function TradeJournal({
     return numValue < 0 ? 'text-danger' : numValue > 0 ? 'text-success' : '';
   };
 
+  // Format holding days with tooltip
+  const renderHoldingDays = (trade: Trade) => {
+    const isOpenPosition = trade.positionStatus === 'Open';
+    const isPartialPosition = trade.positionStatus === 'Partial';
+    const isClosedPosition = trade.positionStatus === 'Closed';
+    // Gather all entry lots
+    const entryLots = [
+      { label: 'Initial Entry', date: trade.date, qty: Number(trade.initialQty) },
+      { label: 'Pyramid 1', date: trade.pyramid1Date, qty: Number(trade.pyramid1Qty) },
+      { label: 'Pyramid 2', date: trade.pyramid2Date, qty: Number(trade.pyramid2Qty) }
+    ].filter(e => e.date && e.qty > 0);
+    // Gather all exit lots (FIFO)
+    const exitLots = [
+      { date: trade.exit1Date, qty: Number(trade.exit1Qty) },
+      { date: trade.exit2Date, qty: Number(trade.exit2Qty) },
+      { date: trade.exit3Date, qty: Number(trade.exit3Qty) }
+    ].filter(e => e.date && e.qty > 0);
+    // Calculate per-lot holding days (FIFO for exits)
+    let remainingExits = exitLots.map(e => ({ ...e }));
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const lotBreakdown: { label: string, qty: number, days: number, exited: boolean, exitDate?: string }[] = [];
+    for (const lot of entryLots) {
+      let qtyLeft = lot.qty;
+      let entryDate = new Date(lot.date);
+      entryDate.setHours(0,0,0,0);
+      // For each exit, match qty FIFO
+      while (qtyLeft > 0 && remainingExits.length > 0) {
+        const exit = remainingExits[0];
+        const exitDate = new Date(exit.date);
+        exitDate.setHours(0,0,0,0);
+        const usedQty = Math.min(qtyLeft, exit.qty);
+        const days = Math.max(1, Math.ceil((exitDate.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24)));
+        lotBreakdown.push({ label: lot.label, qty: usedQty, days, exited: true, exitDate: exit.date });
+        qtyLeft -= usedQty;
+        exit.qty -= usedQty;
+        if (exit.qty === 0) remainingExits.shift();
+      }
+      // If any qty left, it's still open
+      if (qtyLeft > 0) {
+        const days = Math.max(1, Math.ceil((today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24)));
+        lotBreakdown.push({ label: lot.label, qty: qtyLeft, days, exited: false });
+      }
+    }
+    // Tooltip content
+    let tooltipContent;
+    if (isOpenPosition) {
+      tooltipContent = (
+        <div className="flex flex-col gap-1 text-xs max-w-xs min-w-[120px]">
+          <div className="font-semibold">Holding Days</div>
+          {lotBreakdown.filter(l => !l.exited).map((l, idx) => (
+            <div key={idx} className="flex justify-between">
+              <span>{l.label}</span>
+              <span className="font-mono">{l.days} day{l.days !== 1 ? 's' : ''}</span>
+            </div>
+          ))}
+          <div className="text-foreground-500 mt-1 text-[10px]">
+            Days since entry for each open lot.
+          </div>
+        </div>
+      );
+    } else if (isPartialPosition) {
+      tooltipContent = (
+        <div className="flex flex-col gap-1 text-xs max-w-xs min-w-[120px]">
+          <div className="font-semibold">Holding Days</div>
+          {lotBreakdown.map((l, idx) => (
+            <div key={idx} className="flex justify-between">
+              <span>{l.label} {l.exited ? '(sold)' : '(open)'}</span>
+              <span className="font-mono">{l.days} day{l.days !== 1 ? 's' : ''}</span>
+            </div>
+          ))}
+          <div className="text-foreground-500 mt-1 text-[10px]">
+            Days since entry for open lots, entry to exit for sold lots (FIFO).
+          </div>
+        </div>
+      );
+    } else {
+      tooltipContent = (
+        <div className="flex flex-col gap-1 text-xs max-w-xs min-w-[120px]">
+          <div className="font-semibold">Holding Days</div>
+          {lotBreakdown.map((l, idx) => (
+            <div key={idx} className="flex justify-between">
+              <span>{l.label}</span>
+              <span className="font-mono">{l.days} day{l.days !== 1 ? 's' : ''}</span>
+            </div>
+          ))}
+          <div className="text-foreground-500 mt-1 text-[10px]">
+            Entry to exit for each lot (FIFO).
+          </div>
+        </div>
+      );
+    }
+    // Display: weighted avg for exited, days for open (if any open)
+    let displayDays = 0;
+    if (isOpenPosition) {
+      // Show weighted avg for open lots
+      const openLots = lotBreakdown.filter(l => !l.exited);
+      const totalQty = openLots.reduce((sum, l) => sum + l.qty, 0);
+      displayDays = totalQty > 0 ? Math.round(openLots.reduce((sum, l) => sum + l.days * l.qty, 0) / totalQty) : 0;
+    } else if (isPartialPosition) {
+      // Show weighted avg for open lots (if any), else exited
+      const openLots = lotBreakdown.filter(l => !l.exited);
+      const exitedLots = lotBreakdown.filter(l => l.exited);
+      const openQty = openLots.reduce((sum, l) => sum + l.qty, 0);
+      const exitedQty = exitedLots.reduce((sum, l) => sum + l.qty, 0);
+      if (openQty > 0) {
+        displayDays = Math.round(openLots.reduce((sum, l) => sum + l.days * l.qty, 0) / openQty);
+      } else if (exitedQty > 0) {
+        displayDays = Math.round(exitedLots.reduce((sum, l) => sum + l.days * l.qty, 0) / exitedQty);
+      }
+    } else {
+      // Closed: weighted avg for all exited lots
+      const exitedLots = lotBreakdown.filter(l => l.exited);
+      const exitedQty = exitedLots.reduce((sum, l) => sum + l.qty, 0);
+      displayDays = exitedQty > 0 ? Math.round(exitedLots.reduce((sum, l) => sum + l.days * l.qty, 0) / exitedQty) : 0;
+    }
+    return (
+      <Tooltip 
+        content={tooltipContent}
+        placement="top"
+        delay={100}
+        closeDelay={0}
+        radius="sm"
+        shadow="md"
+        classNames={{ content: "bg-content1 border border-divider z-50 max-w-xs" }}
+      >
+        <div className={`py-1 px-2 flex items-center gap-0.5${isOpenPosition ? ' text-warning' : ''} relative`}>
+          {displayDays}
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-alert-circle text-warning cursor-help" style={{marginLeft: 2}}>
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+        </div>
+      </Tooltip>
+    );
+  };
+
+  const { getPortfolioSize } = usePortfolio();
+
   const renderCell = (trade: Trade, columnKey: string) => {
     const cellValue = trade[columnKey as keyof Trade];
+
+    // Handle holding days display
+    if (columnKey === 'holdingDays') {
+      return renderHoldingDays(trade);
+    }
+
+    // Tooltip for Reward:Risk (R:R)
+    if (columnKey === 'rewardRisk') {
+      const rr = Number(trade.rewardRisk);
+      const entry = Number(trade.entry);
+      const sl = Number(trade.sl);
+      const cmp = Number(trade.cmp);
+      const avgExit = Number(trade.avgExitPrice);
+      const buySell = trade.buySell;
+      const positionStatus = trade.positionStatus;
+      const exitedQty = Number(trade.exitedQty);
+      const openQty = Number(trade.openQty);
+      const totalQty = exitedQty + openQty;
+      // Gather all entry lots
+      const entries = [
+        { label: 'Initial Entry', price: Number(trade.entry), qty: Number(trade.initialQty) },
+        { label: 'Pyramid 1', price: Number(trade.pyramid1Price), qty: Number(trade.pyramid1Qty) },
+        { label: 'Pyramid 2', price: Number(trade.pyramid2Price), qty: Number(trade.pyramid2Qty) }
+      ].filter(e => e.price > 0 && e.qty > 0);
+      // Per-entry R:R breakdown
+      const tsl = Number(trade.tsl);
+      const entryBreakdown = entries.map(e => {
+        // For initial entry, always use SL; for pyramids, use TSL if set and > 0, otherwise SL
+        let stop;
+        if (e.label === 'Initial Entry') {
+          stop = sl;
+        } else {
+          stop = tsl > 0 ? tsl : sl;
+        }
+        const rawRisk = e.price - stop; // For Buy
+        const risk = Math.abs(rawRisk); // For R:R calculation
+        let reward = 0;
+        let rewardFormula = '';
+        if (positionStatus === 'Open') {
+          reward = buySell === 'Buy' ? cmp - e.price : e.price - cmp;
+          rewardFormula = buySell === 'Buy'
+            ? `CMP - Entry = ${cmp} - ${e.price} = ${(cmp - e.price).toFixed(2)}`
+            : `Entry - CMP = ${e.price} - ${cmp} = ${(e.price - cmp).toFixed(2)}`;
+        } else if (positionStatus === 'Closed') {
+          reward = buySell === 'Buy' ? avgExit - e.price : e.price - avgExit;
+          rewardFormula = buySell === 'Buy'
+            ? `Avg. Exit - Entry = ${avgExit} - ${e.price} = ${(avgExit - e.price).toFixed(2)}`
+            : `Entry - Avg. Exit = ${e.price} - ${avgExit} = ${(e.price - avgExit).toFixed(2)}`;
+        } else if (positionStatus === 'Partial') {
+          const realizedReward = buySell === 'Buy' ? avgExit - e.price : e.price - avgExit;
+          const potentialReward = buySell === 'Buy' ? cmp - e.price : e.price - cmp;
+          reward = totalQtyAll > 0 ? ((realizedReward * exitedQty + potentialReward * openQty) / totalQtyAll) : 0;
+          rewardFormula = `Weighted: ((Exited: ${realizedReward.toFixed(2)} × ${exitedQty}) + (Open: ${potentialReward.toFixed(2)} × ${openQty})) / ${totalQtyAll} = ${reward.toFixed(2)}`;
+        }
+        const rrValue = risk !== 0 ? Math.abs(reward / risk) : 0;
+        return {
+          label: e.label,
+          price: e.price,
+          risk, // always positive for R:R
+          rawRisk, // signed for display and note
+          reward,
+          rewardFormula,
+          rrValue,
+          qty: e.qty,
+          stop // for tooltip display
+        };
+      });
+      // Calculate weighted average R:R for all entries
+      const totalQtyAll = entryBreakdown.reduce((sum, e) => sum + (e.qty || 0), 0);
+      const weightedRR = totalQtyAll > 0
+        ? entryBreakdown.reduce((sum, e) => sum + (e.rrValue * (e.qty || 0)), 0) / totalQtyAll
+        : 0;
+      // Overall R:R (as before)
+      let risk = Math.abs(entry - sl);
+      let reward = 0;
+      let rewardFormula = '';
+      let rewardValue = 0;
+      if (positionStatus === 'Open') {
+        reward = buySell === 'Buy' ? cmp - entry : entry - cmp;
+        rewardFormula = buySell === 'Buy'
+          ? `CMP - Entry = ${cmp} - ${entry} = ${(cmp - entry).toFixed(2)}`
+          : `Entry - CMP = ${entry} - ${cmp} = ${(entry - cmp).toFixed(2)}`;
+        rewardValue = reward;
+      } else if (positionStatus === 'Closed') {
+        reward = buySell === 'Buy' ? avgExit - entry : entry - avgExit;
+        rewardFormula = buySell === 'Buy'
+          ? `Avg. Exit - Entry = ${avgExit} - ${entry} = ${(avgExit - entry).toFixed(2)}`
+          : `Entry - Avg. Exit = ${entry} - ${avgExit} = ${(entry - avgExit).toFixed(2)}`;
+        rewardValue = reward;
+      } else if (positionStatus === 'Partial') {
+        const realizedReward = buySell === 'Buy' ? avgExit - entry : entry - avgExit;
+        const potentialReward = buySell === 'Buy' ? cmp - entry : entry - cmp;
+        reward = totalQty > 0 ? ((realizedReward * exitedQty + potentialReward * openQty) / totalQty) : 0;
+        rewardFormula = `Weighted: ((Exited: ${realizedReward.toFixed(2)} × ${exitedQty}) + (Open: ${potentialReward.toFixed(2)} × ${openQty})) / ${totalQty} = ${reward.toFixed(2)}`;
+        rewardValue = reward;
+      }
+      const rrValue = risk !== 0 ? Math.abs(rewardValue / risk) : 0;
+      const weightedRRDisplay = totalQtyAll > 0 ? weightedRR.toFixed(2) : '0.00';
+      const rrTooltipContent = (
+        <div className="flex flex-col gap-1 text-xs max-w-xs min-w-[180px]">
+          <div className="font-semibold">Reward:Risk Breakdown</div>
+          {entryBreakdown.map((e, idx) => (
+            <div key={idx} className="flex flex-col gap-0.5 border-b border-divider pb-1 mb-1 last:border-0 last:pb-0 last:mb-0">
+              <div className="font-medium">{e.label} (Entry: {e.price})</div>
+              <div><b>Risk:</b> |Entry - {(e.label === 'Initial Entry' ? 'SL' : (e.stop === tsl && tsl > 0 ? 'TSL' : 'SL'))}| = {e.price} - {e.stop} = {e.rawRisk.toFixed(2)}</div>
+              {e.rawRisk < 0 && e.label !== 'Initial Entry' && (
+                <div className="text-warning-600 text-[10px]">
+                  Negative risk: This pyramid is financed from the cushion of earlier profits.
+                </div>
+              )}
+              <div><b>Reward:</b> {e.rewardFormula}</div>
+              <div><b>R:R:</b> |{e.reward.toFixed(2)} / {e.risk.toFixed(2)}| = <span className='text-primary'>{e.rrValue.toFixed(2)}</span></div>
+            </div>
+          ))}
+          <div className="font-semibold mt-1">Overall R:R (Weighted Avg)</div>
+          <div>
+            <b>
+              {entryBreakdown.map((e, idx) =>
+                <span key={idx}>
+                  {idx > 0 && ' + '}
+                  ({e.rrValue.toFixed(2)} × {e.qty})
+                </span>
+              )}
+              {' '} / {totalQtyAll} = <span className='text-primary'>{weightedRRDisplay}</span>
+            </b>
+          </div>
+        </div>
+      );
+      return (
+        <Tooltip 
+          content={rrTooltipContent}
+          placement="top"
+          delay={100}
+          closeDelay={0}
+          radius="sm"
+          shadow="md"
+          classNames={{ content: "bg-content1 border border-divider z-50 max-w-xs" }}
+        >
+          <div className="py-1 px-2 flex items-center gap-1 relative">
+            {weightedRR > 0 ? `1:${weightedRR.toFixed(2)} (${weightedRR.toFixed(2)}R)` : '-'}
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-alert-circle text-warning cursor-help" style={{marginLeft: 2}}>
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </div>
+        </Tooltip>
+      );
+    }
+
+    // Tooltip for Stock Move (%)
+    if (columnKey === 'stockMove') {
+      // Prepare entries for breakdown
+      const entries = [
+        { price: trade.entry, qty: trade.initialQty, description: 'Initial Entry' },
+        { price: trade.pyramid1Price, qty: trade.pyramid1Qty, description: 'Pyramid 1' },
+        { price: trade.pyramid2Price, qty: trade.pyramid2Qty, description: 'Pyramid 2' }
+      ].filter(e => e.price > 0 && e.qty > 0);
+      // Use calcIndividualMoves
+      const individualMoves = calcIndividualMoves(
+        entries,
+        trade.cmp,
+        trade.avgExitPrice,
+        trade.positionStatus,
+        trade.buySell
+      );
+      const formatPercentage = (value: number | null | undefined): string => {
+        if (value === null || value === undefined) return "-";
+        return `${value.toFixed(2)}%`;
+      };
+      const tooltipContent = (
+        <div className="flex flex-col gap-1 text-xs max-w-xs min-w-[180px]">
+          <div className="font-semibold">Individual Stock Moves:</div>
+          {individualMoves.map((move: any, index: number) => (
+            <div key={index} className="flex justify-between">
+              <span>{move.description} <span className="text-foreground-400">({move.qty} qty)</span></span>
+              <span className="font-mono">{formatPercentage(move.movePercent)}</span>
+            </div>
+          ))}
+          <div className="text-foreground-500 mt-1 text-[10px]">
+            {trade.positionStatus === 'Open'
+              ? '* Moves based on CMP vs. entry prices.'
+              : trade.positionStatus === 'Partial'
+                ? '* Moves weighted: Avg. Exit for exited qty, CMP for open qty, vs. entry prices.'
+                : '* Moves based on Avg. Exit vs. entry prices.'}
+          </div>
+        </div>
+      );
+      return (
+        <Tooltip 
+          content={tooltipContent}
+          placement="top"
+          delay={100}
+          closeDelay={0}
+          radius="sm"
+          shadow="md"
+          classNames={{ content: "bg-content1 border border-divider z-50 max-w-xs" }}
+        >
+          <div className="py-1 px-2 flex items-center gap-1 relative">
+            {cellValue !== undefined && cellValue !== null ? `${Number(cellValue).toFixed(2)}%` : '-'}
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-alert-circle text-warning cursor-help" style={{marginLeft: 2}}>
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </div>
+        </Tooltip>
+      );
+    }
 
     // Skip rendering for non-editable fields
     if (!isEditable(columnKey)) {
@@ -703,6 +971,7 @@ export const TradeJournal = React.memo(function TradeJournal({
       case "exit1Qty":
       case "exit2Qty":
       case "exit3Qty":
+      case "initialQty":
         return (
           <EditableCell 
             value={cellValue as number} 
@@ -713,7 +982,6 @@ export const TradeJournal = React.memo(function TradeJournal({
         );
         
       // Non-editable quantity fields
-      case "initialQty":
       case "openQty":
       case "exitedQty":
       case "holdingDays":
@@ -789,11 +1057,66 @@ export const TradeJournal = React.memo(function TradeJournal({
             </Tooltip>
           </div>
         );
+      case 'unrealizedPL':
+        if (trade.positionStatus === 'Open' || trade.positionStatus === 'Partial') {
+          return (
+            <div className="py-1 px-2 text-right">
+              {formatCellValue(calcUnrealizedPL(trade.avgEntry, trade.cmp, trade.openQty, trade.buySell), 'plRs')}
+            </div>
+          );
+        } else {
+          return <div className="py-1 px-2 text-right">-</div>;
+        }
+      case 'openHeat':
+        return (
+          <div className="py-1 px-2 text-right">
+            {calcTradeOpenHeat(trade, portfolioSize, getPortfolioSize).toFixed(2)}%
+          </div>
+        );
       default:
         const val = trade[columnKey as keyof Trade];
         return val !== undefined && val !== null ? String(val) : "-";
     }
   };
+
+  // DEBUG: Log portfolio size and open/partial trade fields for Open Heat calculation
+  React.useEffect(() => {
+    console.log("[DEBUG] Portfolio Size:", portfolioSize);
+    trades.filter(t => t.positionStatus === 'Open' || t.positionStatus === 'Partial').forEach(t => {
+      console.log(`[DEBUG] Trade: ${t.name}`, {
+        entry: t.entry,
+        avgEntry: t.avgEntry,
+        sl: t.sl,
+        tsl: t.tsl,
+        openQty: t.openQty,
+        openHeat: calcTradeOpenHeat(t, portfolioSize, getPortfolioSize)
+      });
+    });
+  }, [trades, portfolioSize, getPortfolioSize]);
+
+  // DEBUG: Log trades and portfolio size for Open Heat reactivity
+  React.useEffect(() => {
+    console.log('[DEBUG] Open Heat dependencies changed:', { trades, portfolioSize });
+  }, [trades, portfolioSize]);
+
+  // PF Impact calculations for tooltips
+  const totalUnrealizedPL = trades
+    .filter(trade => trade.positionStatus === 'Open' || trade.positionStatus === 'Partial')
+    .reduce((sum, trade) => sum + calcUnrealizedPL(trade.avgEntry, trade.cmp, trade.openQty, trade.buySell), 0);
+
+  const openPfImpact = portfolioSize > 0 ? (totalUnrealizedPL / portfolioSize) * 100 : 0;
+
+  const totalRealizedPL = trades
+    .filter(trade => trade.positionStatus !== 'Open')
+    .reduce((sum, trade) => sum + trade.plRs, 0);
+
+  const realizedPfImpact = portfolioSize > 0 ? (totalRealizedPL / portfolioSize) * 100 : 0;
+
+  // Utility to create a simple hash from trades for key
+  function tradesHash(trades, portfolioSize) {
+    // Use a simple sum of trade ids and portfolioSize for a fast hash
+    return trades.map(t => t.id).join('-') + '-' + portfolioSize;
+  }
 
   return (
     <div className="space-y-4">
@@ -898,7 +1221,7 @@ export const TradeJournal = React.memo(function TradeJournal({
         </AnimatePresence>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-center">
         <StatsCard 
           title={statsTitle.totalTrades} 
           value={trades.length.toString()} 
@@ -921,18 +1244,104 @@ export const TradeJournal = React.memo(function TradeJournal({
           icon="lucide:target" 
           color="success"
         />
-        <StatsCard 
-          title={statsTitle.totalPL} 
-          value={formatCurrency(trades.reduce((sum, trade) => sum + trade.plRs, 0))} 
-          icon="lucide:trending-up" 
-          color={trades.reduce((sum, trade) => sum + trade.plRs, 0) >= 0 ? "success" : "danger"}
-        />
+        <div className="flex items-center gap-2">
+          <StatsCard 
+            title="Realized P/L" 
+            value={formatCurrency(totalRealizedPL)}
+            icon="lucide:indian-rupee" 
+            color={totalRealizedPL >= 0 ? "success" : "danger"}
+          />
+          <Tooltip
+            placement="top"
+            className="max-w-xs text-xs p-1 bg-content1 border border-divider"
+            content={
+              <>
+                <div>
+                  <strong>PF Impact:</strong> {realizedPfImpact.toFixed(2)}%
+                </div>
+                <div className="text-foreground-400">
+                  This is the % of your portfolio that is realized as profit/loss.
+                </div>
+              </>
+            }
+          >
+            <Icon icon="lucide:info" className="text-base text-foreground-400 cursor-pointer inline-block align-middle ml-2" />
+          </Tooltip>
+        </div>
+        <div className="flex items-center gap-2">
+          <StatsCard 
+            title="Unrealized P/L" 
+            value={formatCurrency(totalUnrealizedPL)}
+            icon="lucide:indian-rupee" 
+            color={totalUnrealizedPL >= 0 ? "success" : "danger"}
+          />
+          <Tooltip
+            placement="top"
+            className="max-w-xs text-xs p-1 bg-content1 border border-divider"
+            content={
+              <>
+                <div>
+                  <strong>Open PF Impact:</strong> {openPfImpact.toFixed(2)}%
+                </div>
+                <div className="text-foreground-400">
+                  This is the % of your portfolio that is currently at risk (unrealized).
+                </div>
+              </>
+            }
+          >
+            <Icon icon="lucide:info" className="text-base text-foreground-400 cursor-pointer inline-block align-middle ml-2" />
+          </Tooltip>
+        </div>
+        <div className="flex items-center gap-1">
+          <StatsCard
+            // Add a key to force re-render on trades or portfolioSize change
+            key={trades.length + '-' + portfolioSize + '-' + trades.map(t => t.id).join('-')}
+            title="Open Heat"
+            value={calcOpenHeat(trades, portfolioSize, getPortfolioSize).toFixed(2) + "%"}
+            icon="lucide:flame"
+            color="warning"
+          />
+          <Tooltip
+            placement="top"
+            className="max-w-xs text-xs p-1 bg-content1 border border-divider"
+            content={(() => {
+              const openTrades = trades.filter(t => (t.positionStatus === 'Open' || t.positionStatus === 'Partial'));
+              const breakdown = openTrades
+                .map(t => ({
+                  name: t.name || 'N/A',
+                  risk: calcTradeOpenHeat(t, portfolioSize, getPortfolioSize)
+                }))
+                .filter(t => t.risk > 0)
+                .sort((a, b) => b.risk - a.risk);
+              return (
+                <div>
+                  <div className="mb-2 font-medium text-foreground-700">This is the % of your portfolio you will lose if all initial stops/TSLs are hit on your open/partial positions.</div>
+                  {breakdown.length > 0 ? (
+                    <ul className="space-y-1">
+                      {breakdown.map(t => (
+                        <li key={t.name} className="flex justify-between">
+                          <span>{t.name}</span>
+                          <span className="font-mono">{t.risk.toFixed(2)}%</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="text-foreground-400">No open risk</div>
+                  )}
+                </div>
+              );
+            })()}
+          >
+            <Icon icon="lucide:info" className="text-base text-foreground-400 cursor-pointer inline-block align-middle" />
+          </Tooltip>
+        </div>
       </div>
 
       <Card className="border border-divider">
         <CardBody className="p-0">
           <div className="relative">
           <Table
+            key={tradesHash(trades, portfolioSize)}
             aria-label="Trade journal table"
             bottomContent={
               pages > 0 ? (
@@ -992,6 +1401,7 @@ export const TradeJournal = React.memo(function TradeJournal({
             onOpenChange={onAddOpenChange}
             onSave={handleAddTrade}
             mode="add"
+            symbol={searchQuery} // Pass the search query as the initial symbol
           />
         )}
 
@@ -1003,6 +1413,7 @@ export const TradeJournal = React.memo(function TradeJournal({
               trade={selectedTrade}
               onSave={handleUpdateTrade}
               mode="edit"
+              symbol={selectedTrade?.name || ''}
             />
             
             <DeleteConfirmModal
@@ -1848,5 +2259,35 @@ const PlanFollowedCell: React.FC<PlanFollowedCellProps> = ({ value, onSave }) =>
     </Dropdown>
   );
 };
+
+// Utility to calculate open heat for a single trade
+function calcTradeOpenHeat(trade, defaultPortfolioSize, getPortfolioSize) {
+  // Get the trade date and extract month/year
+  const tradeDate = new Date(trade.date);
+  const month = tradeDate.toLocaleString('default', { month: 'short' });
+  const year = tradeDate.getFullYear();
+  
+  // Get the portfolio size for the specific month/year of the trade
+  const monthlyPortfolioSize = getPortfolioSize ? getPortfolioSize(month, year) || defaultPortfolioSize : defaultPortfolioSize;
+  
+  const entryPrice = trade.avgEntry || trade.entry || 0;
+  const sl = trade.sl || 0;
+  const tsl = trade.tsl || 0;
+  const qty = trade.openQty || 0;
+  let stop = 0;
+  if (tsl > 0 && sl > 0) {
+    stop = tsl; // Both entered, use TSL
+  } else if (tsl > 0) {
+    stop = tsl; // Only TSL entered
+  } else if (sl > 0) {
+    stop = sl; // Only SL entered
+  } else {
+    stop = 0; // Neither entered
+  }
+  if (!entryPrice || !stop || !qty) return 0;
+  if (stop >= entryPrice) return 0;
+  const risk = (entryPrice - stop) * qty;
+  return monthlyPortfolioSize > 0 ? (Math.max(0, risk) / monthlyPortfolioSize) * 100 : 0;
+}
 
 export default TradeJournal;
