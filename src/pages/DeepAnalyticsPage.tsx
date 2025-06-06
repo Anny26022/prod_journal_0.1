@@ -413,7 +413,7 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
 
     return (
         <motion.div 
-            className="p-4 sm:p-6 space-y-6"
+            className="p-4 sm:p-6 space-y-6 bg-white dark:bg-gray-900"
             initial="hidden"
             animate="visible"
             variants={{
@@ -484,7 +484,7 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
 
             <Accordion selectionMode="multiple" defaultExpandedKeys={["1"]} variant="bordered">
                 <AccordionItem key="1" aria-label="Industry & Sector Analysis" title={
-                    <h2 className="text-lg font-semibold text-default-700 flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-default-700 dark:text-white flex items-center gap-2">
                         <Icon icon="lucide:factory" className="text-secondary" />
                         Industry & Sector Analysis
                     </h2>
@@ -518,7 +518,7 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                 </AccordionItem>
 
                 <AccordionItem key="2" aria-label="Setup Performance Analysis" title={
-                     <h2 className="text-lg font-semibold text-default-700 flex items-center gap-2">
+                     <h2 className="text-lg font-semibold text-default-700 dark:text-white flex items-center gap-2">
                         <Icon icon="lucide:settings-2" className="text-success" />
                         Setup Performance Analysis
                     </h2>
@@ -584,7 +584,7 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                 </AccordionItem>
 
                  <AccordionItem key="3" aria-label="Position Analysis" title={
-                     <h2 className="text-lg font-semibold text-default-700 flex items-center gap-2">
+                     <h2 className="text-lg font-semibold text-default-700 dark:text-white flex items-center gap-2">
                         <Icon icon="lucide:hand-coins" className="text-warning" />
                         Position Analysis
                     </h2>

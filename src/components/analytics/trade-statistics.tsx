@@ -35,20 +35,20 @@ const Stat: React.FC<StatProps> = ({ label, value, tooltip, isPercentage, index 
       />
       
       <motion.div 
-        className="relative flex justify-between items-center p-3 backdrop-blur-sm bg-background/40 dark:bg-background/20 border border-foreground-200/10 dark:border-foreground-800/20"
+        className="relative flex justify-between items-center p-3 bg-content2 dark:bg-gray-900 border border-foreground-200/10 dark:border-gray-800"
         whileHover={{ x: 4 }}
         transition={{ type: "spring", stiffness: 400, damping: 10 }}
       >
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-foreground-700 dark:text-foreground-300">
+          <span className="text-sm font-medium text-foreground-700 dark:text-gray-300">
             {label}
           </span>
           {tooltip && (
             <Tooltip 
               content={tooltip}
               classNames={{
-                base: "py-2 px-4 shadow-soft-xl backdrop-blur-xl bg-background/80 dark:bg-background/40 border border-foreground-200/20",
-                content: "text-sm text-foreground-700 dark:text-foreground-300"
+                base: "py-2 px-4 shadow-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800",
+                content: "text-sm text-foreground-700 dark:text-gray-300"
               }}
             >
               <motion.span
@@ -56,7 +56,7 @@ const Stat: React.FC<StatProps> = ({ label, value, tooltip, isPercentage, index 
                 whileTap={{ scale: 0.9 }}
                 className="cursor-help"
               >
-                <Icon icon="lucide:info" className="w-4 h-4 text-foreground-400 dark:text-foreground-500" />
+                <Icon icon="lucide:info" className="w-4 h-4 text-foreground-400 dark:text-gray-500" />
               </motion.span>
             </Tooltip>
           )}
@@ -78,17 +78,17 @@ const Stat: React.FC<StatProps> = ({ label, value, tooltip, isPercentage, index 
                 onKeyDown={(e) => e.key === "Enter" && setIsEditing(false)}
                 autoFocus
                 classNames={{
-                  inputWrapper: "h-8 min-h-unit-8 bg-background/50 dark:bg-background/20 backdrop-blur-md",
-                  input: "text-sm font-medium text-right"
+                  inputWrapper: "h-8 min-h-unit-8 bg-white dark:bg-gray-900",
+                  input: "text-sm font-medium text-right dark:text-white"
                 }}
                 endContent={isPercentage && 
-                  <span className="text-foreground-400 dark:text-foreground-500 text-sm">%</span>
+                  <span className="text-foreground-400 dark:text-gray-400 text-sm">%</span>
                 }
               />
             </motion.div>
           ) : (
             <motion.div 
-              className="font-semibold text-sm cursor-pointer text-foreground-800 dark:text-foreground-200"
+              className="font-semibold text-sm cursor-pointer text-foreground-800 dark:text-white"
               onClick={() => setIsEditing(true)}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}

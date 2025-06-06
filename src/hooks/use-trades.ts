@@ -184,8 +184,11 @@ async function fetchTrades() {
     .select('trade_data')
     .eq('id', SINGLE_USER_ID)
     .single();
-  if (error && error.code !== 'PGRST116') {
-    console.error('Error fetching trades:', error);
+  if (error) {
+    if (error.code !== 'PGRST116') { // PGRST116 means no rows found
+      console.error('Error fetching trades:', error);
+    }
+    return [];
   }
   return data?.trade_data || [];
 }
@@ -194,8 +197,22 @@ async function upsertTrades(trades: any[]) {
   const { error } = await supabase
     .from('trades')
     .upsert({ id: SINGLE_USER_ID, trade_data: trades }, { onConflict: 'id' });
-  if (error) console.error('Supabase upsert error:', error);
+  if (error) {
+    console.error('Supabase upsert error:', error);
+    return false;
+  }
+  return true;
 }
+
+// Define ALL_COLUMNS here, as it's closely tied to the hook's state
+const ALL_COLUMNS = [
+  'tradeNo', 'date', 'name', 'setup', 'buySell', 'entry', 'sl', 'slPercent', 'tsl', 'cmp',
+  'initialQty', 'pyramid1Price', 'pyramid1Qty', 'pyramid1Date', 'pyramid2Price', 'pyramid2Qty', 'pyramid2Date',
+  'positionSize', 'allocation', 'exit1Price', 'exit1Qty', 'exit1Date', 'exit2Price', 'exit2Qty', 'exit2Date',
+  'exit3Price', 'exit3Qty', 'exit3Date', 'openQty', 'exitedQty', 'avgExitPrice', 'stockMove', 'openHeat',
+  'rewardRisk', 'holdingDays', 'positionStatus', 'realisedAmount', 'plRs', 'pfImpact', 'cummPf',
+  'planFollowed', 'exitTrigger', 'proficiencyGrowthAreas', 'unrealizedPL', 'actions', 'notes'
+];
 
 async function fetchTradeSettings() {
   const { data, error } = await supabase
@@ -203,8 +220,20 @@ async function fetchTradeSettings() {
     .select('*')
     .eq('id', SINGLE_USER_ID)
     .single();
-  if (error && error.code !== 'PGRST116') {
-    console.error('Error fetching trade settings:', error);
+  if (error) {
+    if (error.code !== 'PGRST116') { // PGRST116 means no rows found
+      console.error('Error fetching trade settings:', error);
+    }
+    // If no settings found, create default settings with ALL columns visible
+    const defaultSettings = {
+      id: SINGLE_USER_ID,
+      visible_columns: ALL_COLUMNS,
+      search_query: '',
+      status_filter: '',
+      sort_descriptor: { column: 'tradeNo', direction: 'ascending' }
+    };
+    await upsertTradeSettings(defaultSettings);
+    return defaultSettings;
   }
   return data || {};
 }
@@ -213,16 +242,12 @@ async function upsertTradeSettings(settings: any) {
   const { error } = await supabase
     .from('trade_settings')
     .upsert({ id: SINGLE_USER_ID, ...settings }, { onConflict: 'id' });
-  if (error) console.error('Supabase upsert error:', error);
+  if (error) {
+    console.error('Supabase upsert error:', error);
+    return false;
+  }
+  return true;
 }
-
-// Define INITIAL_VISIBLE_COLUMNS here, as it's closely tied to the hook's state
-const INITIAL_VISIBLE_COLUMNS = [
-  'tradeNo', 'date', 'name', 'setup', 'buySell', 'entry', 'sl', 'slPercent', 'cmp',
-  'initialQty', 'positionSize', 'allocation', 'openQty', 'avgExitPrice', 'stockMove',
-  'openHeat', 'rewardRisk', 'holdingDays', 'positionStatus', 'realisedAmount',
-  'plRs', 'pfImpact', 'unrealizedPL', 'actions', 'notes'
-];
 
 export const useTrades = () => {
   const [trades, setTrades] = React.useState<Trade[]>([]);
@@ -230,40 +255,49 @@ export const useTrades = () => {
   const [searchQuery, setSearchQuery] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState('');
   const [sortDescriptor, setSortDescriptor] = React.useState<SortDescriptor>({ column: 'tradeNo', direction: 'ascending' });
-  const [visibleColumns, setVisibleColumns] = React.useState<string[]>(INITIAL_VISIBLE_COLUMNS);
+  const [visibleColumns, setVisibleColumns] = React.useState<string[]>(ALL_COLUMNS);
   const { portfolioSize, getPortfolioSize } = usePortfolio();
   const { filter: globalFilter } = useGlobalFilter();
 
   // Load from Supabase on mount
   React.useEffect(() => {
-    fetchTrades().then((loadedTrades) => {
-      setTrades(loadedTrades);
-      fetchTradeSettings().then((settings) => {
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        const [loadedTrades, settings] = await Promise.all([
+          fetchTrades(),
+          fetchTradeSettings()
+        ]);
+        
+        setTrades(loadedTrades);
         setSearchQuery(settings.search_query || '');
         setStatusFilter(settings.status_filter || '');
         setSortDescriptor(settings.sort_descriptor || { column: 'tradeNo', direction: 'ascending' });
-        setVisibleColumns(settings.visible_columns || INITIAL_VISIBLE_COLUMNS);
+        setVisibleColumns(settings.visible_columns || ALL_COLUMNS);
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
         setIsLoading(false);
-      });
-    });
+      }
+    };
+    
+    loadData();
   }, []);
-
-  // Save trades to Supabase
-  React.useEffect(() => {
-    if (!isLoading) {
-      upsertTrades(trades);
-    }
-  }, [trades, isLoading]);
 
   // Save trade settings to Supabase
   React.useEffect(() => {
     if (!isLoading) {
-      upsertTradeSettings({
-        search_query: searchQuery,
-        status_filter: statusFilter,
-        sort_descriptor: sortDescriptor,
-        visible_columns: visibleColumns
-      });
+      const saveSettings = async () => {
+        const settings = {
+          search_query: searchQuery,
+          status_filter: statusFilter,
+          sort_descriptor: sortDescriptor,
+          visible_columns: visibleColumns
+        };
+        await upsertTradeSettings(settings);
+      };
+      
+      saveSettings();
     }
   }, [searchQuery, statusFilter, sortDescriptor, visibleColumns, isLoading]);
 

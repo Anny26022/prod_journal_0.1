@@ -75,16 +75,16 @@ export const TradeAnalytics = React.memo(function TradeAnalytics() {
           className="lg:col-span-2"
           variants={cardVariants}
         >
-          <Card>
+          <Card className="dark:bg-gray-900">
             <CardHeader className="flex flex-col gap-2">
               <div className="flex justify-between items-center">
-                <h3 className="text-xl font-semibold tracking-tight">Portfolio Performance</h3>
+                <h3 className="text-xl font-semibold tracking-tight dark:text-white">Portfolio Performance</h3>
                 <div className="flex items-center gap-3">
                   <motion.div 
                     className={`flex items-center gap-1.5 px-2 py-1 rounded-md ${
                       chartData.length > 0 && chartData[chartData.length - 1].plPercentage >= 0 
-                        ? 'bg-success-50 dark:bg-success-900/10' 
-                        : 'bg-danger-50 dark:bg-danger-900/10'
+                        ? 'bg-success-100 dark:bg-success-900' 
+                        : 'bg-danger-100 dark:bg-danger-900'
                     }`}
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -110,7 +110,7 @@ export const TradeAnalytics = React.memo(function TradeAnalytics() {
                         : '0.00%'}
                     </span>
                   </motion.div>
-                  <span className="text-sm text-default-500 font-medium min-w-[40px] text-center">{selectedPeriod}</span>
+                  <span className="text-sm text-default-500 dark:text-gray-400 font-medium min-w-[40px] text-center">{selectedPeriod}</span>
                 </div>
               </div>
             </CardHeader>
@@ -136,9 +136,9 @@ export const TradeAnalytics = React.memo(function TradeAnalytics() {
         <motion.div
           variants={cardVariants}
         >
-          <Card>
+          <Card className="dark:bg-gray-900">
             <CardHeader>
-              <h3 className="text-xl font-semibold tracking-tight">Performance Metrics</h3>
+              <h3 className="text-xl font-semibold tracking-tight dark:text-white">Performance Metrics</h3>
             </CardHeader>
             <CardBody>
               <PerformanceMetrics trades={trades} isEditing={false} />
@@ -156,11 +156,11 @@ export const TradeAnalytics = React.memo(function TradeAnalytics() {
         <motion.div
           variants={cardVariants}
         >
-          <Card>
+          <Card className="dark:bg-gray-900">
             <CardHeader>
-              <h3 className="text-xl font-semibold tracking-tight">Trade Statistics</h3>
+              <h3 className="text-xl font-semibold tracking-tight dark:text-white">Trade Statistics</h3>
             </CardHeader>
-            <Divider />
+            <Divider className="dark:bg-gray-800" />
             <CardBody>
               <TradeStatistics trades={trades} />
             </CardBody>
@@ -170,11 +170,11 @@ export const TradeAnalytics = React.memo(function TradeAnalytics() {
         <motion.div
           variants={cardVariants}
         >
-          <Card>
+          <Card className="dark:bg-gray-900">
             <CardHeader className="flex justify-between items-center">
-              <h3 className="text-xl font-semibold tracking-tight">Top Performers</h3>
+              <h3 className="text-xl font-semibold tracking-tight dark:text-white">Top Performers</h3>
             </CardHeader>
-            <Divider />
+            <Divider className="dark:bg-gray-800" />
             <CardBody>
               <TopPerformers trades={trades} />
             </CardBody>

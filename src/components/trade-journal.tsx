@@ -1341,10 +1341,11 @@ export const TradeJournal = React.memo(function TradeJournal({
               <Input
                 classNames={{
                   base: "max-w-[300px]",
-                  inputWrapper: "h-9 bg-content2/40"
+                  inputWrapper: "h-9 bg-content2 dark:bg-gray-900",
+                  input: "text-foreground dark:text-white"
                 }}
                 placeholder="Search trades..."
-                startContent={<Icon icon="lucide:search" className="text-default-400" />}
+                startContent={<Icon icon="lucide:search" className="text-default-400 dark:text-default-300" />}
                 value={searchQuery}
                 onValueChange={setSearchQuery}
                 size="sm"
@@ -1353,47 +1354,58 @@ export const TradeJournal = React.memo(function TradeJournal({
                 <DropdownTrigger>
                   <Button 
                     variant="flat" 
-                    size="sm" 
-                    endContent={<Icon icon="lucide:chevron-down" className="text-sm" />}
+                    size="sm"
+                    className="bg-default-100 dark:bg-gray-900 text-foreground dark:text-white min-w-[120px] h-9"
+                    endContent={<Icon icon="lucide:chevron-down" className="text-sm dark:text-gray-400" />}
                   >
                     Status: {statusFilter || "All"}
                   </Button>
                 </DropdownTrigger>
                 <DropdownMenu 
                   aria-label="Status filter"
+                  className="dark:bg-gray-900"
                   selectionMode="single"
                   selectedKeys={statusFilter ? [statusFilter] : []}
                   onSelectionChange={(keys) => {
                     const selected = Array.from(keys)[0] as string;
                     setStatusFilter(selected === "All" ? "" : selected);
                   }}
+                  classNames={{
+                    base: "dark:bg-gray-900",
+                    content: "dark:bg-gray-900",
+                  }}
                 >
-                  <DropdownItem key="All">All</DropdownItem>
-                  <DropdownItem key="Open">Open</DropdownItem>
-                  <DropdownItem key="Closed">Closed</DropdownItem>
-                  <DropdownItem key="Partial">Partial</DropdownItem>
+                  <DropdownItem key="All" className="dark:text-white dark:hover:bg-gray-800">All</DropdownItem>
+                  <DropdownItem key="Open" className="dark:text-white dark:hover:bg-gray-800">Open</DropdownItem>
+                  <DropdownItem key="Closed" className="dark:text-white dark:hover:bg-gray-800">Closed</DropdownItem>
+                  <DropdownItem key="Partial" className="dark:text-white dark:hover:bg-gray-800">Partial</DropdownItem>
                 </DropdownMenu>
               </Dropdown>
               <Dropdown>
                 <DropdownTrigger>
                   <Button 
                     variant="flat" 
-                    size="sm" 
-                    endContent={<Icon icon="lucide:chevron-down" className="text-sm" />}
+                    size="sm"
+                    className="bg-default-100 dark:bg-gray-900 text-foreground dark:text-white min-w-[120px] h-9"
+                    endContent={<Icon icon="lucide:chevron-down" className="text-sm dark:text-gray-400" />}
                   >
                     Columns
                   </Button>
                 </DropdownTrigger>
                 <DropdownMenu 
                   aria-label="Columns selection"
+                  className="dark:bg-gray-900"
                   closeOnSelect={false}
                   selectionMode="multiple"
                   selectedKeys={new Set(visibleColumns)}
                   onSelectionChange={(keys) => setVisibleColumns(Array.from(keys as Set<string>))}
-                  className="max-h-[300px] overflow-y-auto"
+                  classNames={{
+                    base: "dark:bg-gray-900",
+                    content: "dark:bg-gray-900",
+                  }}
                 >
                   {allColumns.filter(col => col.key !== "actions").map((column) => (
-                    <DropdownItem key={column.key} className="capitalize">
+                    <DropdownItem key={column.key} className="capitalize dark:text-white dark:hover:bg-gray-800">
                       {column.label}
                     </DropdownItem>
                   ))}
@@ -1609,7 +1621,7 @@ export const TradeJournal = React.memo(function TradeJournal({
             }
             classNames={{
               wrapper: "min-h-[222px] p-0",
-              th: "bg-transparent border-b border-divider text-xs font-medium text-default-500 uppercase tracking-wider",
+              th: "bg-transparent border-b border-divider text-xs font-medium text-default-500 dark:text-default-300 uppercase tracking-wider",
               td: "py-2.5 text-sm",
               base: "max-w-full"
             }}
@@ -1629,7 +1641,10 @@ export const TradeJournal = React.memo(function TradeJournal({
             </TableHeader>
             <TableBody items={items} isLoading={isLoading} emptyContent={isLoading ? " " : "No trades found. Add your first trade!"}>
               {(item) => (
-                <TableRow key={item.id} className="hover:bg-default-50 dark:hover:bg-default-900/30">
+                <TableRow 
+                  key={item.id} 
+                  className="hover:bg-default-50 dark:hover:bg-gray-800 dark:bg-gray-900"
+                >
                   {headerColumns.map((column) => (
                     <TableCell key={`${item.id}-${column.key}`}>
                       {renderCell(item, column.key)}
@@ -1930,7 +1945,7 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
         {type === "date" ? (
           <input
             type="date"
-            className="h-7 px-2 rounded-md border border-divider bg-content1 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 hover:bg-content2/40 transition-colors cursor-pointer w-[130px]"
+            className="h-7 px-2 rounded-md border border-divider bg-content1 dark:bg-gray-900 dark:text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 hover:bg-content2 dark:hover:bg-gray-800 transition-colors cursor-pointer w-[130px]"
             value={convertToISODate(editValue)}
             onChange={handleDateChange}
           />
@@ -1952,17 +1967,17 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
                 variant="bordered"
                 classNames={{
                   base: "w-full max-w-[160px]",
-                  input: "text-right font-medium text-small py-0",
-                  inputWrapper: "h-7 min-h-unit-7 bg-content1 shadow-sm"
+                  input: "text-right font-medium text-small py-0 dark:text-white",
+                  inputWrapper: "h-7 min-h-unit-7 bg-content1 dark:bg-gray-900 shadow-sm"
                 }}
-                startContent={type === "price" && <span className="text-default-400 text-small">₹</span>}
+                startContent={type === "price" && <span className="text-default-400 dark:text-gray-400 text-small">₹</span>}
                 step={type === "price" ? "0.05" : undefined}
                 min={min !== undefined ? min : (type === "price" ? 0 : undefined)}
                 max={max !== undefined ? max : undefined}
               />
             ) : (
               <motion.div
-                className="py-1 px-2 rounded-md cursor-text hover:bg-content2/40 transition-colors w-full max-w-[160px]"
+                className="py-1 px-2 rounded-md cursor-text hover:bg-content2 dark:hover:bg-gray-800 transition-colors w-full max-w-[160px] dark:bg-gray-900 dark:text-white"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -1974,7 +1989,7 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
                 onFocus={handleFocus}
               >
                 <div className="flex items-center gap-1">
-                  {type === "price" && <span className="text-default-400 text-small">₹</span>}
+                  {type === "price" && <span className="text-default-400 dark:text-gray-400 text-small">₹</span>}
                   <span className={`font-medium text-small ${getValueColor()}`}>
                     {type === "price" ? formatCurrency(value as number) : String(value)}
                   </span>

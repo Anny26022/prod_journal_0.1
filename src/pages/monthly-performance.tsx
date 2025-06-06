@@ -89,7 +89,12 @@ export const MonthlyPerformanceTable: React.FC = () => {
     const winPercentage = tradesCount > 0 ? (winTrades.length / tradesCount) * 100 : 0;
     const avgGain = winTrades.length > 0 ? winTrades.reduce((sum, t) => sum + (t.stockMove || 0), 0) / winTrades.length : 0;
     const avgLoss = lossTrades.length > 0 ? lossTrades.reduce((sum, t) => sum + (t.stockMove || 0), 0) / lossTrades.length : 0;
-    const avgRR = tradesCount > 0 ? monthTrades.reduce((sum, t) => sum + (t.rewardRisk || 0), 0) / tradesCount : 0;
+    
+    // Calculate average R:R (Reward to Risk ratio)
+    const avgRR = tradesCount > 0 
+      ? Math.abs(avgGain / avgLoss) // Use absolute values to get proper ratio
+      : 0;
+
     const avgHoldingDays = tradesCount > 0 ? monthTrades.reduce((sum, t) => sum + (t.holdingDays || 0), 0) / tradesCount : 0;
 
     // Find corresponding monthly capital data
@@ -672,19 +677,19 @@ export const MonthlyPerformanceTable: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+      <div className="bg-blue-50 dark:bg-gray-900 rounded-lg p-4 border border-blue-200 dark:border-gray-800">
         <div className="flex items-start gap-2">
           <Icon icon="lucide:info" className="text-blue-500 mt-0.5 flex-shrink-0" />
           <div>
-            <p className="font-medium text-blue-800 dark:text-blue-200">Important Note:</p>
-            <p className="text-sm text-blue-700 dark:text-blue-300">
+            <p className="font-medium text-blue-800 dark:text-white">Important Note:</p>
+            <p className="text-sm text-blue-700 dark:text-gray-200">
               Please ensure you set the <span className="font-semibold">Starting Capital</span> for each month before making any changes to the <span className="font-semibold">Added/Withdrawn</span> field. The Starting Capital is used as the base for all calculations.
             </p>
           </div>
         </div>
       </div>
       <div className="flex items-center gap-3 mb-2">
-        <label htmlFor="year-picker" className="font-medium">Year:</label>
+        <label htmlFor="year-picker" className="font-medium text-black dark:text-white">Year:</label>
         <select
           id="year-picker"
           value={selectedYear}
@@ -700,9 +705,9 @@ export const MonthlyPerformanceTable: React.FC = () => {
         <Table 
           aria-label="Monthly performance table"
           classNames={{
-            base: "min-w-[1200px]",
-            th: "bg-default-100 dark:bg-default-800 text-foreground-600 dark:text-foreground-300 text-xs font-medium uppercase",
-            td: "py-3 px-4 border-b border-default-200 dark:border-default-700"
+            base: "min-w-[1200px] bg-white dark:bg-gray-900",
+            th: "bg-default-100 dark:bg-gray-950 text-foreground-600 dark:text-white text-xs font-medium uppercase border-b border-default-200 dark:border-gray-800",
+            td: "py-3 px-4 border-b border-default-200 dark:border-gray-800 text-foreground-800 dark:text-gray-200",
           }}
         >
           <TableHeader columns={columns}>
@@ -714,104 +719,83 @@ export const MonthlyPerformanceTable: React.FC = () => {
           </TableHeader>
           <TableBody items={computedData}>
             {(item) => (
-              <TableRow key={item.month} className="group hover:bg-default-50 dark:hover:bg-default-800/60">
+              <TableRow key={item.month} className="group hover:bg-default-50 dark:hover:bg-gray-800">
                 {(columnKey) => {
                   if (columnKey === 'yearPlPercentage') return null;
                   const rowIndex = computedData.findIndex(d => d.month === item.month);
-                const isEditing = editingCell && editingCell.row === rowIndex && editingCell.col === columnKey;
-                    const value = item[columnKey as keyof typeof item];
-                    if (columnKey === 'addedWithdrawn') {
-                  if (isEditing) {
-                    // Find the year for this month from monthlyCapital
-                    const monthCapital = monthlyCapital.find(mc => mc.month === item.month);
-                    const year = monthCapital ? monthCapital.year : new Date().getFullYear();
-                    
-                    // Find existing capital change for this month to pre-fill the value
-                    const existingChange = capitalChanges.find(change => {
-                      const d = new Date(change.date);
-                      return d.getMonth() === monthOrder.indexOf(item.month) && 
-                             d.getFullYear() === year;
-                    });
-                    
-                    return (
-                      <TableCell key={`${item.month}-${String(columnKey)}`}>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            autoFocus
-                            size="sm"
-                            variant="bordered"
-                            type="number"
-                            value={editingValue}
-                            onChange={e => setEditingValue(e.target.value)}
-                            onBlur={() => handleSaveAddedWithdrawn(rowIndex, item.month, year)}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') {
-                                handleSaveAddedWithdrawn(rowIndex, item.month, year);
-                              } else if (e.key === 'Escape') {
-                                setEditingCell(null);
-                                setEditingValue('');
-                              }
-                            }}
-                            className="h-8 w-32 min-w-[8rem] bg-background dark:bg-default-100 border border-default-300 dark:border-default-700 hover:border-primary dark:hover:border-primary focus:border-primary dark:focus:border-primary text-sm text-foreground dark:text-foreground-200 text-right"
-                            startContent={
-                              <span className="text-foreground-500 text-sm pr-1">₹</span>
-                            }
-                          />
-                          <Tooltip content="Save changes" placement="top">
-                            <Button
-                              isIconOnly
+                  const isEditing = editingCell && editingCell.row === rowIndex && editingCell.col === columnKey;
+                  const value = item[columnKey as keyof typeof item];
+                  if (columnKey === 'addedWithdrawn') {
+                    if (isEditing) {
+                      return (
+                        <TableCell key={`${item.month}-${String(columnKey)}`}> 
+                          <div className="flex items-center gap-2">
+                            <Input
+                              autoFocus
                               size="sm"
-                              variant="light"
-                              onPress={() => handleSaveAddedWithdrawn(rowIndex, item.month, year)}
-                            >
-                              <Icon icon="lucide:check" className="h-4 w-4 text-success-500" />
-                            </Button>
-                          </Tooltip>
-                        </div>
+                              variant="bordered"
+                              type="number"
+                              value={editingValue}
+                              onChange={e => setEditingValue(e.target.value)}
+                              onBlur={() => handleSaveAddedWithdrawn(rowIndex, item.month, selectedYear)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  handleSaveAddedWithdrawn(rowIndex, item.month, selectedYear);
+                                } else if (e.key === 'Escape') {
+                                  setEditingCell(null);
+                                  setEditingValue('');
+                                }
+                              }}
+                              className="h-8 w-32 min-w-[8rem] bg-background dark:bg-gray-900 border border-default-300 dark:border-primary focus:border-primary dark:focus:border-primary text-sm text-foreground dark:text-white text-right"
+                              startContent={
+                                <span className="text-foreground-500 text-sm pr-1">₹</span>
+                              }
+                            />
+                          </div>
+                        </TableCell>
+                      );
+                    }
+                    const numValue = Number(value);
+                    return (
+                      <TableCell
+                        key={`${item.month}-${String(columnKey)}`}
+                        className="cursor-pointer"
+                        onClick={() => {
+                          setEditingCell({ row: rowIndex, col: columnKey });
+                          setEditingValue(numValue === 0 ? "" : String(numValue));
+                        }}
+                      >
+                        <span className={numValue < 0 ? "text-danger-600 dark:text-danger-400" : "text-success-600 dark:text-success-400"}>
+                          {numValue < 0
+                            ? `Withdrawn ₹${Math.abs(numValue).toLocaleString()}`
+                            : `Added ₹${numValue.toLocaleString()}`}
+                        </span>
                       </TableCell>
                     );
                   }
-                  const numValue = Number(value);
-                  return (
-                    <TableCell
-                      key={`${item.month}-${String(columnKey)}`}
-                      className="cursor-pointer"
-                      onClick={() => {
-                        setEditingCell({ row: rowIndex, col: columnKey });
-                        setEditingValue(numValue === 0 ? "" : String(numValue));
-                      }}
-                    >
-                      <span className={numValue < 0 ? "text-danger-600 dark:text-danger-400" : "text-success-600 dark:text-success-400"}>
-                        {numValue < 0
-                          ? `Withdrawn ₹${Math.abs(numValue).toLocaleString()}`
-                          : `Added ₹${numValue.toLocaleString()}`}
-                      </span>
-                    </TableCell>
-                  );
-                }
-                
-                if (columnKey === 'month') {
-                  return (
-                    <TableCell key={`${item.month}-${String(columnKey)}`}>
-                      <span className="font-medium text-foreground dark:text-foreground-200">{value}</span>
-                    </TableCell>
-                      );
-                    }
-                    
-                    if (columnKey === 'pl' || columnKey === 'plPercentage' || 
-                        (typeof columnKey === 'string' && (columnKey === 'cagr' || columnKey.startsWith('rollingReturn')))) {
-                      return (
-                    <TableCell key={`${item.month}-${String(columnKey)}`}>
+                  
+                  if (columnKey === 'month') {
+                    return (
+                      <TableCell key={`${item.month}-${String(columnKey)}`}>
+                        <span className="font-medium text-foreground dark:text-foreground-200">{value}</span>
+                      </TableCell>
+                    );
+                  }
+                  
+                  if (columnKey === 'pl' || columnKey === 'plPercentage' || 
+                      (typeof columnKey === 'string' && (columnKey === 'cagr' || columnKey.startsWith('rollingReturn')))) {
+                    return (
+                      <TableCell key={`${item.month}-${String(columnKey)}`}>
                         <span className={`${value !== '-' && Number(value) >= 0 ? "text-success-600 dark:text-success-400" : value !== '-' ? "text-danger-600 dark:text-danger-400" : ''}`}>
                           {value === '-' ? '-' : (columnKey === 'pl' ? Number(value).toLocaleString() : `${Number(value).toFixed(2)}%`)}
                         </span>
-                    </TableCell>
-                      );
-                    }
-                    
-                    if (columnKey === 'winPercentage') {
-                      return (
-                    <TableCell key={`${item.month}-${String(columnKey)}`}>
+                      </TableCell>
+                    );
+                  }
+                  
+                  if (columnKey === 'winPercentage') {
+                    return (
+                      <TableCell key={`${item.month}-${String(columnKey)}`}>
                         <div className="flex items-center gap-1 text-foreground dark:text-foreground-200">
                           {value === '-' ? '-' : (
                             <>
@@ -824,58 +808,93 @@ export const MonthlyPerformanceTable: React.FC = () => {
                             </>
                           )}
                         </div>
-                    </TableCell>
-                      );
-                    }
-                    
-                    if (columnKey === 'avgGain') {
-                  return (
-                    <TableCell key={`${item.month}-${String(columnKey)}`}>
-                      {value === '-' ? '-' : (
-                        Number(value) > 0 ? (
-                          <span className="text-success-600 dark:text-success-400">{Number(value).toFixed(2)}%</span>
-                        ) : <span className="text-foreground-500 dark:text-foreground-400">-</span>
-                      )}
-                    </TableCell>
-                  );
-                    }
-                    
-                    if (columnKey === 'avgLoss') {
-                  return (
-                    <TableCell key={`${item.month}-${String(columnKey)}`}>
-                      {value === '-' ? '-' : (
-                        <span className="text-danger-600 dark:text-danger-400">{Number(value).toFixed(2)}%</span>
-                      )}
-                    </TableCell>
-                  );
-                    }
-                    
-                    if (columnKey === 'avgRR') {
-                      return (
-                    <TableCell key={`${item.month}-${String(columnKey)}`}>
+                      </TableCell>
+                    );
+                  }
+                  
+                  if (columnKey === 'avgGain') {
+                    return (
+                      <TableCell key={`${item.month}-${String(columnKey)}`}>
+                        {value === '-' ? '-' : (
+                          Number(value) > 0 ? (
+                            <span className="text-success-600 dark:text-success-400">{Number(value).toFixed(2)}%</span>
+                          ) : <span className="text-foreground-500 dark:text-foreground-400">-</span>
+                        )}
+                      </TableCell>
+                    );
+                  }
+                  
+                  if (columnKey === 'avgLoss') {
+                    return (
+                      <TableCell key={`${item.month}-${String(columnKey)}`}>
+                        {value === '-' ? '-' : (
+                          <span className="text-danger-600 dark:text-danger-400">{Number(value).toFixed(2)}%</span>
+                        )}
+                      </TableCell>
+                    );
+                  }
+                  
+                  if (columnKey === 'avgRR') {
+                    return (
+                      <TableCell key={`${item.month}-${String(columnKey)}`}>
                         <span className={`${value !== '-' && Number(value) >= 0 ? "text-success-600 dark:text-success-400" : value !== '-' ? "text-danger-600 dark:text-danger-400" : ''}`}>
                           {value === '-' ? '-' : Number(value).toFixed(2)}
                         </span>
-                    </TableCell>
-                      );
-                    }
+                      </TableCell>
+                    );
+                  }
+                  
+                  if (columnKey === 'startingCapital') {
+                    const hasCustomSize = monthlyPortfolioSizes.some(
+                      (size) => size.month === item.month && size.year === selectedYear && size.size > 0
+                    );
                     
-                    if (columnKey === 'startingCapital') {
-                      const hasCustomSize = monthlyPortfolioSizes.some(
-                        (size) => size.month === item.month && size.year === selectedYear && size.size > 0
-                      );
-                      
-                      if (isEditing) {
-                        return (
-                          <TableCell key={`${item.month}-${String(columnKey)}`}>
-                            <div className="flex items-center gap-2">
-                              <Input
-                                autoFocus
+                    if (isEditing) {
+                      return (
+                        <TableCell key={`${item.month}-${String(columnKey)}`}>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              autoFocus
+                              size="sm"
+                              variant="bordered"
+                              value={editingValue}
+                              onChange={e => setEditingValue(e.target.value)}
+                              onBlur={() => {
+                                const val = Number(editingValue);
+                                if (!isNaN(val) && val >= 0) {
+                                  setPortfolioSize(val, item.month, selectedYear);
+                                }
+                                setEditingCell(null);
+                                setEditingValue("");
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  const val = Number(editingValue);
+                                  if (!isNaN(val) && val >= 0) {
+                                    setPortfolioSize(val, item.month, selectedYear);
+                                  }
+                                  setEditingCell(null);
+                                  setEditingValue("");
+                                } else if (e.key === 'Escape') {
+                                  setEditingCell(null);
+                                  setEditingValue("");
+                                }
+                              }}
+                              classNames={{
+                                inputWrapper: "h-8 min-h-0 bg-background dark:bg-gray-900 border-default-300 dark:border-primary focus-within:border-primary dark:focus-within:border-primary",
+                                input: "text-sm text-foreground dark:text-white text-right placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                              }}
+                              style={{ width: 120 }}
+                              startContent={
+                                <span className="text-foreground-500 text-sm pr-1">₹</span>
+                              }
+                            />
+                            <Tooltip content="Click to edit starting capital" placement="top">
+                              <Button
+                                isIconOnly
                                 size="sm"
-                                variant="bordered"
-                                value={editingValue}
-                                onChange={e => setEditingValue(e.target.value)}
-                                onBlur={() => {
+                                variant="light"
+                                onPress={() => {
                                   const val = Number(editingValue);
                                   if (!isNaN(val) && val >= 0) {
                                     setPortfolioSize(val, item.month, selectedYear);
@@ -883,125 +902,90 @@ export const MonthlyPerformanceTable: React.FC = () => {
                                   setEditingCell(null);
                                   setEditingValue("");
                                 }}
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter') {
-                                    const val = Number(editingValue);
-                                    if (!isNaN(val) && val >= 0) {
-                                      setPortfolioSize(val, item.month, selectedYear);
-                                    }
-                                    setEditingCell(null);
-                                    setEditingValue("");
-                                  } else if (e.key === 'Escape') {
-                                    setEditingCell(null);
-                                    setEditingValue("");
-                                  }
-                                }}
-                                classNames={{
-                                  inputWrapper: "h-8 min-h-0 bg-background dark:bg-default-100 border-default-300 dark:border-default-700 hover:border-primary dark:hover:border-primary focus-within:border-primary dark:focus-within:border-primary",
-                                  input: "text-sm text-foreground dark:text-foreground-200 text-right"
-                                }}
-                                style={{ width: 120 }}
-                                startContent={
-                                  <span className="text-foreground-500 text-sm pr-1">₹</span>
-                                }
-                              />
-                              <Tooltip content="Click to edit starting capital" placement="top">
-                                <Button
-                                  isIconOnly
-                                  size="sm"
-                                  variant="light"
-                                  onPress={() => {
-                                    const val = Number(editingValue);
-                                    if (!isNaN(val) && val >= 0) {
-                                      setPortfolioSize(val, item.month, selectedYear);
-                                    }
-                                    setEditingCell(null);
-                                    setEditingValue("");
-                                  }}
-                                >
-                                  <Icon icon="lucide:check" className="h-4 w-4 text-success-500" />
-                                </Button>
-                              </Tooltip>
-                            </div>
-                          </TableCell>
-                        );
-                      }
-                      
-                      return (
-                        <TableCell
-                          key={`${item.month}-${String(columnKey)}`}
-                          className="cursor-pointer group"
-                          onClick={() => {
-                            setEditingCell({ row: rowIndex, col: columnKey });
-                            setEditingValue(value === '-' ? '' : String(value));
-                          }}
-                        >
-                          <Tooltip 
-                            content={
-                              hasCustomSize 
-                                ? `Custom portfolio size for ${item.month} ${selectedYear}` 
-                                : `Using ${value === '-' ? 'default' : 'calculated'} portfolio size`
-                            }
-                            placement="top"
-                          >
-                            <motion.div 
-                              whileHover={{ scale: 1.02 }} 
-                              transition={{ type: 'spring', stiffness: 400, damping: 10 }}
-                              className="flex items-center justify-end gap-1.5"
-                            >
-                              {hasCustomSize && (
-                                <span className="text-primary-500 dark:text-primary-400">
-                                  <Icon icon="lucide:star" className="h-3.5 w-3.5" />
-                                </span>
-                              )}
-                              {value === '-' ? (
-                                <span className="text-foreground-500 dark:text-foreground-400">-</span>
-                              ) : (
-                                <>
-                                  <span className="text-foreground-500 text-sm">₹</span>
-                                  <span className={`${hasCustomSize ? 'font-medium text-primary-600 dark:text-primary-400' : 'text-foreground dark:text-foreground-200'}`}>
-                                    {Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                  </span>
-                                </>
-                              )}
-                              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground-400">
-                                <Icon icon="lucide:edit-2" className="h-3.5 w-3.5" />
-                              </span>
-                            </motion.div>
-                          </Tooltip>
-                        </TableCell>
-                      );
-                    }
-                    
-                    if (columnKey === 'finalCapital') {
-                      return (
-                        <TableCell key={`${item.month}-${String(columnKey)}`}>
-                          <span className="text-foreground dark:text-foreground-200">{value === '-' ? '-' : Number(value).toLocaleString()}</span>
-                        </TableCell>
-                      );
-                    }
-                    
-                    if (columnKey === 'avgHoldingDays') {
-                      return (
-                        <TableCell key={`${item.month}-${String(columnKey)}`}>
-                          {value === '-' ? '-' : Number(value).toFixed(2)}
-                        </TableCell>
-                      );
-                    }
-                    
-                    if (columnKey === 'trades') {
-                      return (
-                        <TableCell key={`${item.month}-${String(columnKey)}`}>
-                          {value === '-' ? '-' : value}
+                              >
+                                <Icon icon="lucide:check" className="h-4 w-4 text-success-500" />
+                              </Button>
+                            </Tooltip>
+                          </div>
                         </TableCell>
                       );
                     }
                     
                     return (
-                      <TableCell key={`${item.month}-${String(columnKey)}`}>
-                        <span className="text-foreground dark:text-foreground-200">{value}</span>
+                      <TableCell
+                        key={`${item.month}-${String(columnKey)}`}
+                        className="cursor-pointer group"
+                        onClick={() => {
+                          setEditingCell({ row: rowIndex, col: columnKey });
+                          setEditingValue(value === '-' ? '' : String(value));
+                        }}
+                      >
+                        <Tooltip 
+                          content={
+                            hasCustomSize 
+                              ? `Custom portfolio size for ${item.month} ${selectedYear}` 
+                              : `Using ${value === '-' ? 'default' : 'calculated'} portfolio size`
+                          }
+                          placement="top"
+                        >
+                          <motion.div 
+                            whileHover={{ scale: 1.02 }} 
+                            transition={{ type: 'spring', stiffness: 400, damping: 10 }}
+                            className="flex items-center justify-end gap-1.5"
+                          >
+                            {hasCustomSize && (
+                              <span className="text-primary-500 dark:text-primary-400">
+                                <Icon icon="lucide:star" className="h-3.5 w-3.5" />
+                              </span>
+                            )}
+                            {value === '-' ? (
+                              <span className="text-foreground-500 dark:text-foreground-400">-</span>
+                            ) : (
+                              <>
+                                <span className="text-foreground-500 text-sm">₹</span>
+                                <span className={`${hasCustomSize ? 'font-medium text-primary-600 dark:text-primary-400' : 'text-foreground dark:text-foreground-200'}`}>
+                                  {Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              </>
+                            )}
+                            <span className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground-400">
+                              <Icon icon="lucide:edit-2" className="h-3.5 w-3.5" />
+                            </span>
+                          </motion.div>
+                        </Tooltip>
                       </TableCell>
                     );
+                  }
+                  
+                  if (columnKey === 'finalCapital') {
+                    return (
+                      <TableCell key={`${item.month}-${String(columnKey)}`}>
+                        <span className="text-foreground dark:text-foreground-200">{value === '-' ? '-' : Number(value).toLocaleString()}</span>
+                      </TableCell>
+                    );
+                  }
+                  
+                  if (columnKey === 'avgHoldingDays') {
+                    return (
+                      <TableCell key={`${item.month}-${String(columnKey)}`}>
+                        {value === '-' ? '-' : Number(value).toFixed(2)}
+                      </TableCell>
+                    );
+                  }
+                  
+                  if (columnKey === 'trades') {
+                    return (
+                      <TableCell key={`${item.month}-${String(columnKey)}`}>
+                        {value === '-' ? '-' : value}
+                      </TableCell>
+                    );
+                  }
+                  
+                  return (
+                    <TableCell key={`${item.month}-${String(columnKey)}`}>
+                      <span className="text-foreground dark:text-foreground-200">{value}</span>
+                    </TableCell>
+                  );
                 }}
               </TableRow>
             )}

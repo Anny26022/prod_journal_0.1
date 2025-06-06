@@ -27,26 +27,42 @@ const formatCurrency = (value: number) => {
   }).format(value);
 };
 
-export const TaxSummaryChart: React.FC = () => {
+interface TaxSummaryChartProps {
+  taxesByMonth: { [month: string]: number };
+}
+
+export const TaxSummaryChart: React.FC<TaxSummaryChartProps> = ({ taxesByMonth }) => {
   const { trades } = useTrades();
+  
   // Group trades by month
-  const monthlyMap: Record<string, { grossPL: number; netPL: number; taxes: number }> = {};
+  const monthlyMap: Record<string, { grossPL: number }> = {};
   trades.forEach(trade => {
     const key = getMonthShort(trade.date);
-    if (!monthlyMap[key]) monthlyMap[key] = { grossPL: 0, netPL: 0, taxes: 0 };
+    if (!monthlyMap[key]) monthlyMap[key] = { grossPL: 0 };
     monthlyMap[key].grossPL += trade.plRs || 0;
-    // For now, taxes = 0, netPL = grossPL
-    monthlyMap[key].netPL += trade.plRs || 0;
   });
+
   // Output months in calendar order
   const monthOrder = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const chartData = monthOrder.map(month => ({
-    month,
-    grossPL: monthlyMap[month]?.grossPL || 0,
-    netPL: monthlyMap[month]?.netPL || 0,
-    taxes: monthlyMap[month]?.taxes || 0,
-    taxPercent: monthlyMap[month]?.grossPL ? (monthlyMap[month].taxes / Math.abs(monthlyMap[month].grossPL) * 100) : 0
-  }));
+  const chartData = monthOrder.map(month => {
+    const longMonth = {
+      Jan: "January", Feb: "February", Mar: "March", Apr: "April",
+      May: "May", Jun: "June", Jul: "July", Aug: "August",
+      Sep: "September", Oct: "October", Nov: "November", Dec: "December"
+    }[month];
+    
+    const grossPL = monthlyMap[month]?.grossPL || 0;
+    const taxes = taxesByMonth[longMonth || ""] || 0;
+    const netPL = grossPL - taxes;
+    
+    return {
+      month,
+      grossPL,
+      netPL,
+      taxes,
+      plPercent: grossPL ? (grossPL / Math.abs(grossPL) * 100) : 0
+    };
+  });
 
   return (
     <div className="h-[350px]">
@@ -76,11 +92,20 @@ export const TaxSummaryChart: React.FC = () => {
           />
           <Tooltip
             formatter={(value: number, name: string) => {
-              if (name === "taxPercent") {
-                return [`${value.toFixed(2)}%`, "Tax %"];
+              switch (name) {
+                case "plPercent":
+                  return [`${value.toFixed(2)}%`, "P/L %"];
+                case "grossPL":
+                  return [`₹ ${value.toFixed(2)}`, "Gross P/L"];
+                case "netPL":
+                  return [`₹ ${value.toFixed(2)}`, "Net P/L"];
+                case "taxes":
+                  return [`₹ ${value.toFixed(2)}`, "Taxes"];
+                default:
+                  return [value.toFixed(2), name];
               }
-              return [formatCurrency(value), name === "grossPL" ? "Gross P/L" : name === "netPL" ? "Net P/L" : "Taxes"];
             }}
+            labelFormatter={(label) => label}
             contentStyle={{
               backgroundColor: "hsl(var(--heroui-content1))",
               border: "1px solid hsl(var(--heroui-divider))",
@@ -94,7 +119,7 @@ export const TaxSummaryChart: React.FC = () => {
             yAxisId="left" 
             dataKey="grossPL" 
             name="Gross P/L" 
-            fill="hsl(var(--heroui-primary-300))" 
+            fill="hsl(var(--heroui-primary-500))" 
             radius={[4, 4, 0, 0]} 
             barSize={20}
           />
@@ -117,8 +142,8 @@ export const TaxSummaryChart: React.FC = () => {
           <Line 
             yAxisId="right" 
             type="monotone" 
-            dataKey="taxPercent" 
-            name="Tax %" 
+            dataKey="plPercent" 
+            name="P/L %" 
             stroke="hsl(var(--heroui-warning-500))" 
             strokeWidth={2}
             dot={{ r: 4 }}

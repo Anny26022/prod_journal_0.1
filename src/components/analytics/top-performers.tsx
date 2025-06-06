@@ -11,6 +11,7 @@ import { Icon } from "@iconify/react";
 import { motion } from "framer-motion";
 import { Trade } from "../../types/trade";
 import { calcWeightedRewardRisk } from '../../utils/tradeCalculations';
+import { metricVariants } from "../../utils/animations";
 
 interface TopPerformerProps {
   label: string;
@@ -28,7 +29,11 @@ function formatDate(dateString: string) {
   if (!dateString) return "-";
   try {
     const d = new Date(dateString);
-    return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    return d.toLocaleDateString("en-IN", { 
+      day: "numeric",
+      month: "numeric",
+      year: "numeric"
+    });
   } catch {
     return dateString;
   }
@@ -44,99 +49,50 @@ const TopPerformer: React.FC<TopPerformerProps> = ({
   isNegative,
   index = 0
 }) => {
-  const [isHovered, setIsHovered] = React.useState(false);
-
   return (
     <motion.div 
-      className="relative overflow-hidden rounded-lg"
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.1 }}
-      onHoverStart={() => setIsHovered(true)}
-      onHoverEnd={() => setIsHovered(false)}
     >
-      {/* Gradient accent */}
       <motion.div 
-        className={`absolute inset-0 bg-gradient-to-r ${
-          isPositive 
-            ? 'from-success-500/10 via-success-500/5' 
-            : isNegative 
-            ? 'from-error-500/10 via-error-500/5' 
-            : 'from-primary-500/10 via-primary-500/5'
-        } to-transparent`}
-        initial={{ x: "-100%" }}
-        animate={{ x: isHovered ? "0%" : "-100%" }}
-        transition={{ type: "spring", stiffness: 100, damping: 20 }}
-      />
-
-      <motion.div 
-        className="relative flex justify-between items-center p-3 backdrop-blur-sm bg-background/40 dark:bg-background/20 border border-foreground-200/10 dark:border-foreground-800/20"
+        className="relative flex flex-col gap-2 p-3 bg-content2 dark:bg-gray-900 border border-foreground-200/10 dark:border-gray-800 rounded-lg"
+        variants={metricVariants}
         whileHover={{ x: 4 }}
         transition={{ type: "spring", stiffness: 400, damping: 10 }}
       >
-        <div className="flex flex-col">
-          <span className="text-sm font-medium text-foreground-700 dark:text-foreground-300">
-            {label}
-          </span>
-          {stock && date && (
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <motion.span 
-                className="text-xs font-medium text-foreground-600 dark:text-foreground-400"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.2 }}
-              >
-                {stock}
-              </motion.span>
-              <motion.span 
-                className="inline-block w-1 h-1 rounded-full bg-foreground-400/50 dark:bg-foreground-600/50"
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ delay: 0.3 }}
-              />
-              <motion.span 
-                className="text-xs text-foreground-500 dark:text-foreground-500"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.4 }}
-              >
-                {formatDate(date)}
-              </motion.span>
-            </div>
-          )}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-foreground-700 dark:text-gray-300">
+              {label}
+            </span>
+          </div>
+          <motion.div 
+            className={`font-semibold text-sm ${
+              isPositive ? 'text-success-600 dark:text-success-400' : 
+              isNegative ? 'text-danger-600 dark:text-danger-400' : 
+              'text-foreground-800 dark:text-white'
+            }`}
+            layout
+          >
+            {isPercentage ? `${value}%` : value}
+          </motion.div>
         </div>
-
-        <motion.div 
-          className={`flex items-center gap-1.5 font-semibold text-sm ${
-            isPositive 
-              ? 'text-success-600 dark:text-success-400' 
-              : isNegative 
-              ? 'text-error-600 dark:text-error-400' 
-              : 'text-foreground-800 dark:text-foreground-200'
-          }`}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-        >
-          {isPositive && (
-            <motion.span
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: "spring", stiffness: 500, delay: 0.2 }}
-            >
-              <Icon icon="lucide:trending-up" className="w-4 h-4" />
-            </motion.span>
-          )}
-          {isNegative && (
-            <motion.span
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: "spring", stiffness: 500, delay: 0.2 }}
-            >
-              <Icon icon="lucide:trending-down" className="w-4 h-4" />
-            </motion.span>
-          )}
-          {isPercentage ? `${value}%` : value}
-        </motion.div>
+        
+        {(stock || date) && (
+          <div className="flex items-center justify-between text-xs">
+            {stock && (
+              <span className="text-foreground-600 dark:text-gray-400">
+                {stock}
+              </span>
+            )}
+            {date && (
+              <span className="text-foreground-500 dark:text-gray-500">
+                {date}
+              </span>
+            )}
+          </div>
+        )}
       </motion.div>
     </motion.div>
   );
@@ -146,52 +102,16 @@ interface TopPerformersProps {
   trades: Trade[];
 }
 
-type TimeFilter = "1W" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "ALL";
 type MetricFilter = "stockMove" | "pfImpact" | "rewardRisk" | "plRs";
 
 export const TopPerformers: React.FC<TopPerformersProps> = ({ trades }) => {
-  const [timeFilter, setTimeFilter] = React.useState<TimeFilter>("ALL");
   const [metricFilter, setMetricFilter] = React.useState<MetricFilter>("stockMove");
-
-  // Filter trades based on time period
-  const filteredTrades = React.useMemo(() => {
-    if (!trades || trades.length === 0) return [];
-    
-    const now = new Date();
-    const filterDate = new Date();
-
-    switch (timeFilter) {
-      case "1W":
-        filterDate.setDate(now.getDate() - 7);
-        break;
-      case "1M":
-        filterDate.setMonth(now.getMonth() - 1);
-        break;
-      case "3M":
-        filterDate.setMonth(now.getMonth() - 3);
-        break;
-      case "6M":
-        filterDate.setMonth(now.getMonth() - 6);
-        break;
-      case "YTD":
-        filterDate.setMonth(0, 1);
-        break;
-      case "1Y":
-        filterDate.setFullYear(now.getFullYear() - 1);
-        break;
-      case "ALL":
-      default:
-        return trades;
-    }
-
-    return trades.filter(trade => new Date(trade.date) >= filterDate);
-  }, [trades, timeFilter]);
 
   // Get top and bottom performers based on selected metric
   const { top, bottom } = React.useMemo(() => {
-    if (!filteredTrades.length) return { top: null, bottom: null };
+    if (!trades || !trades.length) return { top: null, bottom: null };
 
-    const sortedTrades = [...filteredTrades].sort((a, b) => {
+    const sortedTrades = [...trades].sort((a, b) => {
       let aValue, bValue;
       if (metricFilter === 'rewardRisk') {
         aValue = calcWeightedRewardRisk(a);
@@ -207,7 +127,7 @@ export const TopPerformers: React.FC<TopPerformersProps> = ({ trades }) => {
       top: sortedTrades[0],
       bottom: sortedTrades[sortedTrades.length - 1]
     };
-  }, [filteredTrades, metricFilter]);
+  }, [trades, metricFilter]);
 
   // Format metric value based on type
   const formatMetricValue = (value: number, trade?: Trade) => {
@@ -216,13 +136,17 @@ export const TopPerformers: React.FC<TopPerformersProps> = ({ trades }) => {
         style: 'currency',
         currency: 'INR',
         minimumFractionDigits: 0,
-        maximumFractionDigits: 0
+        maximumFractionDigits: 0,
+        useGrouping: true
       }).format(value);
     }
     if (metricFilter === 'rewardRisk' && trade) {
-      return calcWeightedRewardRisk(trade).toFixed(2);
+      const rr = calcWeightedRewardRisk(trade);
+      return rr.toFixed(rr % 1 === 0 ? 0 : 1);
     }
-    return value.toFixed(2);
+    // For percentage values, remove trailing zeros
+    const formatted = value.toFixed(2);
+    return formatted.replace(/\.?0+$/, '');
   };
 
   // Get metric label
@@ -259,59 +183,29 @@ export const TopPerformers: React.FC<TopPerformersProps> = ({ trades }) => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex justify-end">
         <Dropdown>
           <DropdownTrigger>
             <Button 
               variant="flat" 
               size="sm"
-              endContent={<Icon icon="lucide:chevron-down" className="text-sm" />}
-            >
-              {timeFilter}
-            </Button>
-          </DropdownTrigger>
-          <DropdownMenu 
-            aria-label="Time filter"
-            selectionMode="single"
-            selectedKeys={[timeFilter]}
-            onSelectionChange={(keys) => {
-              const selected = Array.from(keys)[0] as TimeFilter;
-              setTimeFilter(selected);
-            }}
-          >
-            <DropdownItem key="1W">1W</DropdownItem>
-            <DropdownItem key="1M">1M</DropdownItem>
-            <DropdownItem key="3M">3M</DropdownItem>
-            <DropdownItem key="6M">6M</DropdownItem>
-            <DropdownItem key="YTD">YTD</DropdownItem>
-            <DropdownItem key="1Y">1Y</DropdownItem>
-            <DropdownItem key="ALL">ALL</DropdownItem>
-          </DropdownMenu>
-        </Dropdown>
-
-        <Dropdown>
-          <DropdownTrigger>
-            <Button 
-              variant="flat" 
-              size="sm"
-              endContent={<Icon icon="lucide:chevron-down" className="text-sm" />}
+              className="bg-content2 dark:bg-gray-900 text-foreground dark:text-white min-w-[120px] h-9"
+              endContent={<Icon icon="lucide:chevron-down" className="text-sm dark:text-gray-400" />}
             >
               {getMetricLabel()}
             </Button>
           </DropdownTrigger>
           <DropdownMenu 
-            aria-label="Metric filter"
-            selectionMode="single"
+            aria-label="Metric selection"
+            className="dark:bg-gray-900"
             selectedKeys={[metricFilter]}
-            onSelectionChange={(keys) => {
-              const selected = Array.from(keys)[0] as MetricFilter;
-              setMetricFilter(selected);
-            }}
+            selectionMode="single"
+            onSelectionChange={(keys) => setMetricFilter(Array.from(keys)[0] as MetricFilter)}
           >
-            <DropdownItem key="stockMove">Move</DropdownItem>
-            <DropdownItem key="pfImpact">pf Impact</DropdownItem>
-            <DropdownItem key="rewardRisk">R:R</DropdownItem>
-            <DropdownItem key="plRs">P/L</DropdownItem>
+            <DropdownItem key="stockMove" className="dark:text-white dark:hover:bg-gray-800">Move %</DropdownItem>
+            <DropdownItem key="pfImpact" className="dark:text-white dark:hover:bg-gray-800">Portfolio Impact</DropdownItem>
+            <DropdownItem key="rewardRisk" className="dark:text-white dark:hover:bg-gray-800">Risk:Reward</DropdownItem>
+            <DropdownItem key="plRs" className="dark:text-white dark:hover:bg-gray-800">P/L (₹)</DropdownItem>
           </DropdownMenu>
         </Dropdown>
       </div>

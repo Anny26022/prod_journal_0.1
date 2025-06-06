@@ -119,14 +119,14 @@ export const TaxAnalytics: React.FC = () => {
   const loadTaxData = useCallback(() => {
     fetchTaxData().then((allTaxData) => {
       const yearData = allTaxData[selectedYear] || {};
-      if (Object.keys(yearData).length > 0) {
+        if (Object.keys(yearData).length > 0) {
         setTaxesByMonth(prev => ({ ...prev, ...yearData }));
-      } else {
-        const initialData: { [month: string]: number } = {};
+        } else {
+          const initialData: { [month: string]: number } = {};
         monthOrder.forEach(month => { initialData[month] = 0; });
-        setTaxesByMonth(initialData);
+          setTaxesByMonth(initialData);
       }
-    });
+      });
   }, [selectedYear]);
 
   // Load tax data on mount and when selectedYear changes
@@ -209,10 +209,11 @@ export const TaxAnalytics: React.FC = () => {
           <Dropdown>
             <DropdownTrigger>
               <Button 
-                variant="flat" 
+                variant="light" 
                 endContent={<Icon icon="lucide:chevron-down" className="text-sm" />}
                 size="sm"
-                className="font-medium"
+                radius="full"
+                className="font-medium text-xs h-7 px-3"
               >
                 {selectedYear}
               </Button>
@@ -232,22 +233,13 @@ export const TaxAnalytics: React.FC = () => {
             </DropdownMenu>
           </Dropdown>
         </div>
-        <div className="flex items-center gap-3">
-          <Button 
-            color="primary"
-            variant={isEditMode ? "solid" : "flat"}
-            onPress={() => setIsEditMode(!isEditMode)}
-            startContent={<Icon icon={isEditMode ? "lucide:check" : "lucide:edit-3"} />}
-            size="sm"
-            className="font-medium"
-          >
-            {isEditMode ? "Save Changes" : "Edit Data"}
-          </Button>
+        <div className="flex items-center gap-2">
           <Button
-            variant="flat"
-            startContent={<Icon icon="lucide:download" />}
+            variant="light"
+            startContent={<Icon icon="lucide:download" className="w-3.5 h-3.5" />}
             size="sm"
-            className="font-medium"
+            radius="full"
+            className="font-medium text-xs h-7 px-3"
           >
             Export
           </Button>
@@ -261,10 +253,13 @@ export const TaxAnalytics: React.FC = () => {
               aria-label="Chart options" 
               size="sm" 
               color="primary"
+              variant="light"
+              radius="full"
               classNames={{
-                tabList: "bg-content2/50 p-0.5 rounded-lg",
-                cursor: "bg-primary rounded-md",
-                tab: "px-3 py-1 data-[selected=true]:text-white font-medium"
+                tabList: "gap-2 p-0.5",
+                cursor: "bg-primary/20",
+                tab: "px-3 py-1 h-7 data-[selected=true]:text-primary font-medium text-xs",
+                tabContent: "group-data-[selected=true]:text-primary"
               }}
             >
               <Tab key="gross" title="Gross P/L" />
@@ -274,7 +269,7 @@ export const TaxAnalytics: React.FC = () => {
           </CardHeader>
           <Divider />
           <CardBody>
-            <TaxSummaryChart />
+            <TaxSummaryChart taxesByMonth={taxesByMonth} />
           </CardBody>
         </Card>
         <Card>
@@ -282,44 +277,165 @@ export const TaxAnalytics: React.FC = () => {
             <h3 className="text-xl font-semibold tracking-tight">Tax Metrics</h3>
           </CardHeader>
           <Divider />
-          <CardBody className="space-y-4">
+          <CardBody className="p-6 space-y-8">
+            {/* Performance Metrics */}
             <div className="space-y-4">
-              <motion.div className="flex justify-between items-center" whileHover={{ scale: 1.01 }}>
-                <span className="text-sm font-medium text-default-600">Max Cumm PF</span>
-                <span className="font-semibold text-right">{formatPercent(maxCummPF)}</span>
-              </motion.div>
-              <motion.div className="flex justify-between items-center" whileHover={{ scale: 1.01 }}>
-                <span className="text-sm font-medium text-default-600">Min Cumm PF</span>
-                <span className="font-semibold text-right">{formatPercent(minCummPF)}</span>
-              </motion.div>
-              <motion.div className="flex justify-between items-center" whileHover={{ scale: 1.01 }}>
-                <span className="text-sm font-medium text-default-600">Drawdown</span>
-                <span className="font-semibold text-right">{formatPercent(drawdown)}</span>
-              </motion.div>
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <span className="text-default-600">Max Cumm PF</span>
+                  <Tooltip
+                    content={
+                      <div className="max-w-xs p-2 space-y-2 text-sm">
+                        <p className="font-medium text-default-600">Maximum Cumulative Profit Factor</p>
+                        <p>The highest point your cumulative profit factor reached during this period.</p>
+                        <div className="space-y-1">
+                          <p className="font-medium">What it means:</p>
+                          <p>• Higher values indicate stronger performance peaks</p>
+                          <p>• Shows your best momentum in the market</p>
+                          <p>• Helps identify optimal trading conditions</p>
+                        </div>
+                        <p className="text-xs text-default-400 mt-2">
+                          Tip: Use this as a benchmark for your trading potential
+                        </p>
+                      </div>
+                    }
+                    placement="right"
+                    showArrow
+                    classNames={{
+                      base: "bg-content1",
+                      content: "p-0"
+                    }}
+                  >
+                    <Button
+                      isIconOnly
+                      size="sm"
+                      variant="light"
+                      className="min-w-unit-5 w-unit-5 h-unit-5 text-default-400"
+                    >
+                      <Icon icon="lucide:info" className="w-3 h-3" />
+                    </Button>
+                  </Tooltip>
+                </div>
+                <span className="text-[#00B386] font-medium">{maxCummPF.toFixed(2)}%</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <span className="text-default-600">Min Cumm PF</span>
+                  <Tooltip
+                    content={
+                      <div className="max-w-xs p-2 space-y-2 text-sm">
+                        <p className="font-medium text-default-600">Minimum Cumulative Profit Factor</p>
+                        <p>The lowest point your cumulative profit factor reached during this period.</p>
+                        <div className="space-y-1">
+                          <p className="font-medium">What it means:</p>
+                          <p>• Shows your resilience during tough periods</p>
+                          <p>• Helps identify risk management needs</p>
+                          <p>• Important for setting stop-loss levels</p>
+                        </div>
+                        <p className="text-xs text-default-400 mt-2">
+                          Tip: Use this to improve your risk management strategy
+                        </p>
+                      </div>
+                    }
+                    placement="right"
+                    showArrow
+                    classNames={{
+                      base: "bg-content1",
+                      content: "p-0"
+                    }}
+                  >
+                    <Button
+                      isIconOnly
+                      size="sm"
+                      variant="light"
+                      className="min-w-unit-5 w-unit-5 h-unit-5 text-default-400"
+                    >
+                      <Icon icon="lucide:info" className="w-3 h-3" />
+                    </Button>
+                  </Tooltip>
+                </div>
+                <span className="text-[#FF3B3B] font-medium">{minCummPF.toFixed(2)}%</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <span className="text-default-600">Drawdown</span>
+                  <Tooltip
+                    content={
+                      <div className="max-w-xs p-2 space-y-2 text-sm">
+                        <p className="font-medium text-default-600">How is Drawdown Calculated?</p>
+                        <p>Drawdown measures the decline from a peak in cumulative performance.</p>
+                        <div className="space-y-1">
+                          <p className="font-medium">Example:</p>
+                          <p>Starting P/L: ₹1,000</p>
+                          <p>→ Drops to ₹800 (20% Drawdown)</p>
+                          <p>→ Rises to ₹1,200 (0% Drawdown, New Peak)</p>
+                          <p>→ Falls to ₹600 (50% Drawdown)</p>
+                        </div>
+                        <p className="text-xs text-default-400 mt-2">
+                          Formula: ((Peak - Current) / |Peak|) × 100
+                        </p>
+                      </div>
+                    }
+                    placement="right"
+                    showArrow
+                    classNames={{
+                      base: "bg-content1",
+                      content: "p-0"
+                    }}
+                  >
+                    <Button
+                      isIconOnly
+                      size="sm"
+                      variant="light"
+                      className="min-w-unit-5 w-unit-5 h-unit-5 text-default-400"
+                    >
+                      <Icon icon="lucide:info" className="w-3 h-3" />
+                    </Button>
+                  </Tooltip>
+                </div>
+                {drawdown === 0 ? (
+                  <span className="text-[#00B386] font-medium flex items-center gap-1">
+                    <Icon icon="lucide:rocket" className="w-4 h-4" />
+                    Hurray! Flying high
+                  </span>
+                ) : (
+                  <span className="text-[#FF3B3B] font-medium">{drawdown.toFixed(2)}%</span>
+                )}
+              </div>
             </div>
-            <Divider />
+
+            <Divider className="my-4" />
+
+            {/* Financial Metrics */}
             <div className="space-y-4">
-              <motion.div className="flex justify-between items-center" whileHover={{ scale: 1.01 }}>
-                <span className="text-sm font-medium text-default-600">Total Gross P/L</span>
-                <span className="font-semibold text-right">{formatCurrency(totalGrossPL)}</span>
-              </motion.div>
-              <motion.div className="flex justify-between items-center" whileHover={{ scale: 1.01 }}>
-                <span className="text-sm font-medium text-default-600">Total Taxes</span>
-                <span className="font-semibold text-danger text-right">{formatCurrency(totalTaxes)}</span>
-              </motion.div>
-              <motion.div className="flex justify-between items-center" whileHover={{ scale: 1.01 }}>
-                <span className="text-sm font-medium text-default-600">Total Net P/L</span>
-                <span className="font-semibold text-success text-right">{formatCurrency(totalNetPL)}</span>
-              </motion.div>
+              <div className="flex justify-between items-center">
+                <span className="text-default-600">Total Gross P/L</span>
+                <span className={`font-medium ${totalGrossPL >= 0 ? 'text-[#00B386]' : 'text-[#FF3B3B]'}`}>
+                  {formatCurrency(totalGrossPL)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-default-600">Total Taxes</span>
+                <span className="text-[#FF3B3B] font-medium">
+                  {formatCurrency(totalTaxes)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-default-600">Total Net P/L</span>
+                <span className={`font-medium ${totalNetPL >= 0 ? 'text-[#00B386]' : 'text-[#FF3B3B]'}`}>
+                  {formatCurrency(totalNetPL)}
+                </span>
+              </div>
             </div>
-            <Divider />
+
+            <Divider className="my-4" />
+
+            {/* Action Button */}
             <Button 
-              color="primary" 
-              variant="flat" 
-              fullWidth
-              startContent={<Icon icon="lucide:file-text" />}
-              onPress={() => {}}
-              className="font-medium"
+              variant="light"
+              className="w-full font-normal text-[#00B386]"
+              startContent={<Icon icon="lucide:file-text" className="w-4 h-4" />}
+              size="sm"
             >
               Generate Tax Report
             </Button>
@@ -333,12 +449,7 @@ export const TaxAnalytics: React.FC = () => {
         <Divider />
         <CardBody>
           <TaxTable 
-            isEditMode={isEditMode} 
-            onEditRow={(month) => {
-              setSelectedMonth(month);
-              setIsModalOpen(true);
-            }}
-            trades={tradesForYear}
+            trades={trades}
             taxesByMonth={taxesByMonth}
             setTaxesByMonth={setTaxesByMonth}
           />
