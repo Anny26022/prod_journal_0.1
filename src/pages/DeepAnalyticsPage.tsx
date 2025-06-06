@@ -9,6 +9,7 @@ import { loadIndustrySectorMapping, getIndustrySectorByName } from '../utils/ind
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell } from 'recharts';
 import IndustryDistributionChart from '../components/analytics/IndustryDistributionChart';
 import { Accordion, AccordionItem } from "@heroui/react";
+import PnLDistributionCharts from '../components/analytics/PnLDistributionCharts';
 
 // Assuming Trade type is available from useTrades or a common types file
 // import { Trade } from '../types/trade'; 
@@ -175,6 +176,8 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                 avgLossPfImpact: 0,
                 totalPositivePfImpact: 0,
                 totalAbsoluteNegativePfImpact: 0,
+                avgPnLPerDay: 0,
+                uniqueTradingDays: 0
             };
         }
 
@@ -182,6 +185,11 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
         const losingTrades = closedTrades.filter(trade => trade.plRs < 0);
         const totalWinningTrades = winningTrades.length;
         const totalLosingTrades = losingTrades.length;
+
+        // Calculate total P&L and total trading days
+        const totalPnL = closedTrades.reduce((sum, trade) => sum + trade.plRs, 0);
+        const uniqueTradingDays = new Set(closedTrades.map(trade => trade.date.split('T')[0])).size;
+        const avgPnLPerDay = uniqueTradingDays > 0 ? totalPnL / uniqueTradingDays : 0;
 
         // Calculate total positive and negative PF Impact
         const totalPositivePfImpact = winningTrades.reduce((sum, trade) => sum + trade.pfImpact, 0);
@@ -256,12 +264,12 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
             lossStreak: maxLossStreak,
             topWin,
             topLoss,
-
-            // Include PF Impact based averages for display in tooltips or potentially elsewhere
             avgWinPfImpact: avgWinPfImpact,
             avgLossPfImpact: avgLossPfImpact,
             totalPositivePfImpact: totalPositivePfImpact,
             totalAbsoluteNegativePfImpact: totalAbsoluteNegativePfImpact,
+            avgPnLPerDay,
+            uniqueTradingDays
         };
 
     }, [trades]);
@@ -373,8 +381,36 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                     </CardHeader>
                     <Divider />
                     <CardBody>
-                        {!isLoading && (
+            {!isLoading && (
                              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                 <StatsCard 
+                                    title="Avg. PnL/Day" 
+                    value={
+                        <div className="flex items-center gap-1">
+                                            {formatCurrency(analytics.avgPnLPerDay)}
+                             <Tooltip 
+                                                content={
+                                                    <div className="p-2">
+                                                        <p className="font-semibold mb-1">Trading Days Approach</p>
+                                                        <p className="text-xs">Calculated using only days with active trades:</p>
+                                                        <p className="text-xs mt-1">Total P&L ÷ Number of Trading Days</p>
+                                                        <p className="text-xs mt-2 text-default-500">* Trading days: {analytics.uniqueTradingDays}</p>
+                                                    </div>
+                                                } 
+                                placement="top" 
+                                radius="sm" 
+                                shadow="md"
+                                                classNames={{ 
+                                                    content: "bg-content1 border border-divider z-50 max-w-xs" 
+                                                }}
+                            >
+                                <Icon icon="lucide:info" className="text-base text-foreground-400 cursor-help" />
+                            </Tooltip>
+                        </div>
+                    }
+                                    icon="lucide:calendar-clock" 
+                                    color={analytics.avgPnLPerDay >= 0 ? "success" : "danger"}
+                                 />
                                  <StatsCard title="Expectancy (%)" value={<div className="flex items-center gap-1">{analytics.expectancy.toFixed(2)}%<Tooltip content={`Avg Win PF Impact: ${analytics.avgWinPfImpact.toFixed(2)}%\nAvg Loss PF Impact: ${analytics.avgLossPfImpact.toFixed(2)}%`} placement="top" radius="sm" shadow="md" classNames={{ content: "bg-content1 border border-divider z-50 max-w-xs text-xs" }}><Icon icon="lucide:info" className="text-base text-foreground-400 cursor-help" /></Tooltip></div>} icon="lucide:trending-up" color={analytics.expectancy >= 0 ? "success" : "danger"}/>
                                  <StatsCard title="Profit Factor" value={<div className="flex items-center gap-1">{isFinite(analytics.profitFactor) ? analytics.profitFactor.toFixed(2) : "∞"}<Tooltip content={`Total Positive PF Impact: ${analytics.totalPositivePfImpact.toFixed(2)}%\nTotal Negative PF Impact: ${-analytics.totalAbsoluteNegativePfImpact.toFixed(2)}%`} placement="top" radius="sm" shadow="md" classNames={{ content: "bg-content1 border border-divider z-50 max-w-xs text-xs" }}><Icon icon="lucide:info" className="text-base text-foreground-400 cursor-help" /></Tooltip></div>} icon="lucide:line-chart" color={analytics.profitFactor >= 1 ? "success" : "danger"}/>
                                  <StatsCard title="Avg Win Hold" value={`${analytics.avgWinHold} Day${analytics.avgWinHold !== 1 ? 's' : ''}`} icon="lucide:clock" color="success"/>
@@ -482,7 +518,7 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                                     </div>
                                 </CardHeader>
                                 <Divider/>
-                                <SetupFrequencyChart trades={trades} />
+                 <SetupFrequencyChart trades={trades} />
                             </Card>
                         )}
                      </div>
@@ -494,13 +530,15 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                         Position Analysis
                     </h2>
                 }>
-                    <div className="p-2">
+                    <div className="p-2 space-y-6">
+                        {!isLoading && <PnLDistributionCharts trades={trades} />}
+
             <Card className="border border-divider">
                 <CardHeader className="flex gap-3 items-center">
                     <Icon icon="lucide:pie-chart" className="text-xl text-primary-500" />
-                            <div>
-                                <p className="text-md font-semibold">Top Allocations</p>
-                                <p className="text-sm text-default-500">Largest open positions by portfolio percentage.</p>
+                                <div>
+                                    <p className="text-md font-semibold">Top Allocations</p>
+                                    <p className="text-sm text-default-500">Largest open positions by portfolio percentage.</p>
                     </div>
                 </CardHeader>
                 <Divider/>

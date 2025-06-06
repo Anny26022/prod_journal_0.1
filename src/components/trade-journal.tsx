@@ -69,6 +69,8 @@ export interface TradeJournalProps {
     winRate?: string;
     totalPL?: string;
   };
+  toggleFullscreen?: () => void;
+  isFullscreen?: boolean;
 }
 
 export const TradeJournal = React.memo(function TradeJournal({ 
@@ -79,6 +81,8 @@ export const TradeJournal = React.memo(function TradeJournal({
     winRate: "Win Rate",
     totalPL: "Total P/L"
   },
+  toggleFullscreen,
+  isFullscreen
 }: TradeJournalProps) {
   const { 
     trades, 
@@ -96,6 +100,58 @@ export const TradeJournal = React.memo(function TradeJournal({
     setVisibleColumns
   } = useTrades();
   
+  // Memoize filtered and sorted trades
+  const processedTrades = useMemo(() => {
+    return trades
+      .filter(trade => {
+        if (!searchQuery) return true;
+        const searchLower = searchQuery.toLowerCase();
+        return (
+          trade.name.toLowerCase().includes(searchLower) ||
+          trade.setup?.toLowerCase().includes(searchLower) ||
+          trade.notes?.toLowerCase().includes(searchLower)
+        );
+      })
+      .filter(trade => {
+        if (!statusFilter || statusFilter === "all") return true;
+        return trade.positionStatus.toLowerCase() === statusFilter.toLowerCase();
+      });
+  }, [trades, searchQuery, statusFilter]);
+
+  // Memoize trade statistics calculations
+  const tradeStats = useMemo(() => {
+    const openPositions = processedTrades.filter(t => t.positionStatus === "Open" || t.positionStatus === "Partial");
+    const closedTrades = processedTrades.filter(t => t.positionStatus === "Closed");
+    const winningTrades = closedTrades.filter(t => t.plRs > 0);
+    
+    return {
+      totalTrades: processedTrades.length,
+      openPositionsCount: openPositions.length,
+      winRate: closedTrades.length > 0 ? (winningTrades.length / closedTrades.length) * 100 : 0,
+      totalPL: processedTrades.reduce((sum, t) => sum + (t.plRs || 0), 0)
+    };
+  }, [processedTrades]);
+
+  // Defer heavy calculations using requestIdleCallback
+  useEffect(() => {
+    if (typeof window.requestIdleCallback !== 'undefined') {
+      const handle = requestIdleCallback(
+        (deadline: IdleDeadline) => {
+          if (deadline.timeRemaining() > 0) {
+            processedTrades.forEach(trade => {
+              if (trade.positionStatus === "Open" || trade.positionStatus === "Partial") {
+                calcUnrealizedPL(trade);
+                calcOpenHeat(trade);
+              }
+            });
+          }
+        },
+        { timeout: 1000 }
+      );
+      return () => cancelIdleCallback(handle);
+    }
+  }, [processedTrades]);
+
   const handleExport = (format: 'csv' | 'xlsx') => {
     // Use the raw, unfiltered trades from the hook for export
     const allTradesForExport = trades; 

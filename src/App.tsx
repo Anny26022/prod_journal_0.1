@@ -202,7 +202,7 @@ export default function App() {
 
           {/* Main Content */}
           <main ref={mainContentRef} className={`flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full ${isMainContentFullscreen ? 'overflow-auto' : ''} bg-gradient-to-br from-background/50 to-background/30`}>
-            <AnimatePresence mode="wait">
+            <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={location.pathname}
                 initial={{ opacity: 0, y: 20 }}
@@ -210,23 +210,30 @@ export default function App() {
                   opacity: 1, 
                   y: 0,
                   transition: {
-                    duration: 0.4,
-                    ease: [0.22, 1, 0.36, 1],
-                    staggerChildren: 0.1
+                    duration: 0.3,
+                    ease: "easeOut"
                   }
                 }}
                 exit={{ 
-                  opacity: 0, 
-                  y: -20,
+                  opacity: 0,
                   transition: {
-                    duration: 0.3,
-                    ease: [0.22, 1, 0.36, 1]
+                    duration: 0.2,
+                    ease: "easeIn"
                   }
                 }}
-                className="w-full"
+                className="w-full will-change-transform"
               >
                 <Switch location={location}>
-                  <Route exact path="/" render={(props) => <TradeJournal {...props} toggleFullscreen={handleToggleMainContentFullscreen} isFullscreen={isMainContentFullscreen} />} />
+                  <Route exact path="/" render={(props) => (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <TradeJournal {...props} toggleFullscreen={handleToggleMainContentFullscreen} isFullscreen={isMainContentFullscreen} />
+                    </motion.div>
+                  )} />
                   <Route path="/analytics" component={TradeAnalytics} />
                   <Route path="/tax-analytics" component={TaxAnalytics} />
                   <Route path="/monthly-performance" component={MonthlyPerformanceTable} />
