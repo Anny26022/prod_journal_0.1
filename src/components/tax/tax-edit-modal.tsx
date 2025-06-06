@@ -12,11 +12,32 @@ import {
   Tab
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
+import { supabase, SINGLE_USER_ID } from '../../utils/supabaseClient';
 
 interface TaxEditModalProps {
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
   month: string | null;
+}
+
+// Supabase helpers
+async function fetchTaxData() {
+  const { data, error } = await supabase
+    .from('tax_data')
+    .select('data')
+    .eq('id', SINGLE_USER_ID)
+    .single();
+  if (error && error.code !== 'PGRST116') {
+    console.error('Error fetching tax data:', error);
+  }
+  return data?.data || {};
+}
+
+async function upsertTaxData(taxData: any) {
+  const { error } = await supabase
+    .from('tax_data')
+    .upsert({ id: SINGLE_USER_ID, data: taxData }, { onConflict: 'id' });
+  if (error) console.error('Supabase upsert error:', error);
 }
 
 export const TaxEditModal: React.FC<TaxEditModalProps> = ({
@@ -154,31 +175,23 @@ export const TaxEditModal: React.FC<TaxEditModalProps> = ({
     }
   }, [isOpen, sessionKey]);
   
-  // Save tax data to localStorage when saving changes
+  // Save tax data to Supabase when saving changes
   const handleSaveChanges = useCallback(() => {
     if (!month) return;
-    
     // Get the selected year from the URL or use current year as fallback
     const pathParts = window.location.pathname.split('/');
     const yearFromUrl = pathParts[pathParts.length - 1];
     const selectedYear = yearFromUrl && !isNaN(Number(yearFromUrl)) ? yearFromUrl : new Date().getFullYear().toString();
-    
-    // Get existing tax data from localStorage
-    const savedTaxData = localStorage.getItem('taxData');
-    const currentData = savedTaxData ? JSON.parse(savedTaxData) : {};
-    
-    // Update the tax data for the selected year and month
-    currentData[selectedYear] = currentData[selectedYear] || {};
-    currentData[selectedYear][month] = taxes;
-    
-    // Save back to localStorage
-    localStorage.setItem('taxData', JSON.stringify(currentData));
-    
-    // Close the modal
-    onOpenChange(false);
-    
-    // Force refresh the parent component to reflect changes
-    window.dispatchEvent(new Event('storage'));
+    // Get existing tax data from Supabase
+    fetchTaxData().then((allTaxData) => {
+      const currentData = { ...allTaxData };
+      currentData[selectedYear] = currentData[selectedYear] || {};
+      currentData[selectedYear][month] = taxes;
+      upsertTaxData(currentData).then(() => {
+        onOpenChange(false);
+        window.dispatchEvent(new Event('storage'));
+      });
+    });
   }, [month, taxes, onOpenChange]);
 
   // Calculate Net P/L and Tax Percentage

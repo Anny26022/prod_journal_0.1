@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from "react";
+import { supabase, SINGLE_USER_ID } from './supabaseClient';
 
 export interface MonthlyPortfolioSize {
   month: string;
@@ -20,30 +21,44 @@ const DEFAULT_PORTFOLIO_SIZE = 100000; // Default 100k
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
 
+// Supabase helpers
+async function fetchPortfolioSizes() {
+  const { data, error } = await supabase
+    .from('portfolio_sizes')
+    .select('sizes')
+    .eq('id', SINGLE_USER_ID)
+    .single();
+  if (error && error.code !== 'PGRST116') {
+    console.error('Error fetching portfolio sizes:', error);
+  }
+  return data?.sizes || [];
+}
+
+async function upsertPortfolioSizes(sizes: any[]) {
+  const { error } = await supabase
+    .from('portfolio_sizes')
+    .upsert({ id: SINGLE_USER_ID, sizes }, { onConflict: 'id' });
+  if (error) console.error('Supabase upsert error:', error);
+}
+
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   const [monthlyPortfolioSizes, setMonthlyPortfolioSizes] = useState<MonthlyPortfolioSize[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
-  // Load saved monthly portfolio sizes from localStorage
+  // Load from Supabase on mount
   useEffect(() => {
-    const saved = localStorage.getItem(PORTFOLIO_SIZES_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          setMonthlyPortfolioSizes(parsed);
-        }
-      } catch (e) {
-        console.error('Failed to parse saved portfolio sizes', e);
+    fetchPortfolioSizes().then((sizes) => {
+      if (Array.isArray(sizes)) {
+        setMonthlyPortfolioSizes(sizes);
       }
-    }
-    setHydrated(true);
+      setHydrated(true);
+    });
   }, []);
 
-  // Save to localStorage when monthlyPortfolioSizes changes
+  // Save to Supabase when monthlyPortfolioSizes changes
   useEffect(() => {
     if (hydrated && monthlyPortfolioSizes.length > 0) {
-      localStorage.setItem(PORTFOLIO_SIZES_KEY, JSON.stringify(monthlyPortfolioSizes));
+      upsertPortfolioSizes(monthlyPortfolioSizes);
     }
   }, [monthlyPortfolioSizes, hydrated]);
 

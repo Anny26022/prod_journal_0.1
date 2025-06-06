@@ -19,6 +19,7 @@ import {
   calcPFImpact,
   calcRealizedPL_FIFO
 } from "../utils/tradeCalculations";
+import { supabase, SINGLE_USER_ID } from '../utils/supabaseClient';
 
 // Define SortDirection type compatible with HeroUI Table
 type SortDirection = "ascending" | "descending";
@@ -176,39 +177,95 @@ function recalculateAllTrades(trades: Trade[], portfolioSize: number, getPortfol
   });
 }
 
+// Supabase helpers
+async function fetchTrades() {
+  const { data, error } = await supabase
+    .from('trades')
+    .select('trade_data')
+    .eq('id', SINGLE_USER_ID)
+    .single();
+  if (error && error.code !== 'PGRST116') {
+    console.error('Error fetching trades:', error);
+  }
+  return data?.trade_data || [];
+}
+
+async function upsertTrades(trades: any[]) {
+  const { error } = await supabase
+    .from('trades')
+    .upsert({ id: SINGLE_USER_ID, trade_data: trades }, { onConflict: 'id' });
+  if (error) console.error('Supabase upsert error:', error);
+}
+
+async function fetchTradeSettings() {
+  const { data, error } = await supabase
+    .from('trade_settings')
+    .select('*')
+    .eq('id', SINGLE_USER_ID)
+    .single();
+  if (error && error.code !== 'PGRST116') {
+    console.error('Error fetching trade settings:', error);
+  }
+  return data || {};
+}
+
+async function upsertTradeSettings(settings: any) {
+  const { error } = await supabase
+    .from('trade_settings')
+    .upsert({ id: SINGLE_USER_ID, ...settings }, { onConflict: 'id' });
+  if (error) console.error('Supabase upsert error:', error);
+}
+
+// Define INITIAL_VISIBLE_COLUMNS here, as it's closely tied to the hook's state
+const INITIAL_VISIBLE_COLUMNS = [
+  'tradeNo', 'date', 'name', 'setup', 'buySell', 'entry', 'sl', 'slPercent', 'cmp',
+  'initialQty', 'positionSize', 'allocation', 'openQty', 'avgExitPrice', 'stockMove',
+  'openHeat', 'rewardRisk', 'holdingDays', 'positionStatus', 'realisedAmount',
+  'plRs', 'pfImpact', 'unrealizedPL', 'actions', 'notes'
+];
+
 export const useTrades = () => {
   const [trades, setTrades] = React.useState<Trade[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
-  const [searchQuery, setSearchQuery] = React.useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('trades_searchQuery');
-      return saved ? JSON.parse(saved) : "";
-    }
-    return "";
-  });
-  const [statusFilter, setStatusFilter] = React.useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('trades_statusFilter');
-      return saved ? JSON.parse(saved) : "";
-    }
-    return "";
-  });
-  const [sortDescriptor, setSortDescriptor] = React.useState<SortDescriptor>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('trades_sortDescriptor');
-      return saved ? JSON.parse(saved) : { column: "tradeNo", direction: "ascending" };
-    }
-    return { column: "tradeNo", direction: "ascending" };
-  });
-  const [visibleColumns, setVisibleColumns] = React.useState<string[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('trades_visibleColumns');
-      return saved ? JSON.parse(saved) : INITIAL_VISIBLE_COLUMNS;
-    }
-    return INITIAL_VISIBLE_COLUMNS;
-  });
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [statusFilter, setStatusFilter] = React.useState('');
+  const [sortDescriptor, setSortDescriptor] = React.useState<SortDescriptor>({ column: 'tradeNo', direction: 'ascending' });
+  const [visibleColumns, setVisibleColumns] = React.useState<string[]>(INITIAL_VISIBLE_COLUMNS);
   const { portfolioSize, getPortfolioSize } = usePortfolio();
   const { filter: globalFilter } = useGlobalFilter();
+
+  // Load from Supabase on mount
+  React.useEffect(() => {
+    fetchTrades().then((loadedTrades) => {
+      setTrades(loadedTrades);
+      fetchTradeSettings().then((settings) => {
+        setSearchQuery(settings.search_query || '');
+        setStatusFilter(settings.status_filter || '');
+        setSortDescriptor(settings.sort_descriptor || { column: 'tradeNo', direction: 'ascending' });
+        setVisibleColumns(settings.visible_columns || INITIAL_VISIBLE_COLUMNS);
+        setIsLoading(false);
+      });
+    });
+  }, []);
+
+  // Save trades to Supabase
+  React.useEffect(() => {
+    if (!isLoading) {
+      upsertTrades(trades);
+    }
+  }, [trades, isLoading]);
+
+  // Save trade settings to Supabase
+  React.useEffect(() => {
+    if (!isLoading) {
+      upsertTradeSettings({
+        search_query: searchQuery,
+        status_filter: statusFilter,
+        sort_descriptor: sortDescriptor,
+        visible_columns: visibleColumns
+      });
+    }
+  }, [searchQuery, statusFilter, sortDescriptor, visibleColumns, isLoading]);
 
   // Load trades from localStorage on initial render
   React.useEffect(() => {
@@ -312,19 +369,6 @@ export const useTrades = () => {
     return result;
   }, [trades, globalFilter, searchQuery, statusFilter, sortDescriptor]);
 
-  React.useEffect(() => {
-    localStorage.setItem('trades_searchQuery', JSON.stringify(searchQuery));
-  }, [searchQuery]);
-  React.useEffect(() => {
-    localStorage.setItem('trades_statusFilter', JSON.stringify(statusFilter));
-  }, [statusFilter]);
-  React.useEffect(() => {
-    localStorage.setItem('trades_sortDescriptor', JSON.stringify(sortDescriptor));
-  }, [sortDescriptor]);
-  React.useEffect(() => {
-    localStorage.setItem('trades_visibleColumns', JSON.stringify(visibleColumns));
-  }, [visibleColumns]);
-
   return {
     trades: filteredTrades,
     addTrade,
@@ -341,32 +385,3 @@ export const useTrades = () => {
     setVisibleColumns
   };
 };
-
-// Define INITIAL_VISIBLE_COLUMNS here, as it's closely tied to the hook's state
-const INITIAL_VISIBLE_COLUMNS = [
-  'tradeNo',
-  'date',
-  'name',
-  'setup',
-  'buySell',
-  'entry',
-  'sl',
-  'slPercent',
-  'cmp',
-  'initialQty',
-  'positionSize',
-  'allocation',
-  'openQty',
-  'avgExitPrice',
-  'stockMove',
-  'openHeat',
-  'rewardRisk',
-  'holdingDays',
-  'positionStatus',
-  'realisedAmount',
-  'plRs',
-  'pfImpact',
-  'unrealizedPL',
-  'actions',
-  'notes'
-];

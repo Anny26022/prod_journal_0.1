@@ -10,6 +10,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
 import IndustryDistributionChart from '../components/analytics/IndustryDistributionChart';
 import { Accordion, AccordionItem } from "@heroui/react";
 import PnLDistributionCharts from '../components/analytics/PnLDistributionCharts';
+import TradeHeatmap from '../components/analytics/TradeHeatmap';
+import { useGlobalFilter } from '../context/GlobalFilterContext';
 
 // Assuming Trade type is available from useTrades or a common types file
 // import { Trade } from '../types/trade'; 
@@ -31,6 +33,7 @@ interface Trade {
 const DeepAnalyticsPage: React.FC = () => { // Renamed component
     const { trades, isLoading } = useTrades();
     const { portfolioSize } = usePortfolio();
+    const { filter } = useGlobalFilter();
     const [mappingLoaded, setMappingLoaded] = React.useState(false);
 
     // Load industry/sector mapping on mount
@@ -148,7 +151,7 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                 totalTrades,
                 winRate,
                 totalPfImpact,
-            };
+        };
         });
 
         // Sort by total PF impact to show most impactful setups first
@@ -356,6 +359,58 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
         return null;
     };
 
+    // Helper to get date range from global filter
+    function getDateRangeFromFilter(filter) {
+        const today = new Date();
+        let startDate: Date | undefined = undefined;
+        let endDate: Date | undefined = undefined;
+        if (filter.type === 'all') {
+            // Use all trades
+            return { startDate: undefined, endDate: undefined };
+        } else if (filter.type === 'week') {
+            endDate = today;
+            startDate = new Date(today);
+            startDate.setDate(today.getDate() - 6);
+        } else if (filter.type === 'month') {
+            const year = filter.year ?? today.getFullYear();
+            const month = filter.month ?? today.getMonth();
+            startDate = new Date(year, month, 1);
+            endDate = new Date(year, month + 1, 0);
+        } else if (filter.type === 'fy') {
+            // Financial year: April 1st to March 31st
+            const year = today.getMonth() < 3 ? today.getFullYear() - 1 : today.getFullYear();
+            startDate = new Date(year, 3, 1);
+            endDate = new Date(year + 1, 2, 31);
+        } else if (filter.type === 'cy') {
+            // Calendar year
+            const year = today.getFullYear();
+            startDate = new Date(year, 0, 1);
+            endDate = new Date(year, 11, 31);
+        } else if (filter.type === 'custom') {
+            startDate = filter.startDate ? new Date(filter.startDate) : undefined;
+            endDate = filter.endDate ? new Date(filter.endDate) : undefined;
+        }
+        return { startDate, endDate };
+    }
+
+    const { startDate: globalStartDate, endDate: globalEndDate } = getDateRangeFromFilter(filter);
+
+    // Filter trades by date range
+    const filteredTrades = React.useMemo(() => {
+        if (!globalStartDate && !globalEndDate) return trades;
+        return trades.filter(trade => {
+            const tradeDate = new Date(trade.date.split('T')[0]);
+            if (globalStartDate && tradeDate < globalStartDate) return false;
+            if (globalEndDate && tradeDate > globalEndDate) return false;
+            return true;
+        });
+    }, [trades, globalStartDate, globalEndDate]);
+
+    // Calculate min and max trade dates for heatmap (within filtered trades)
+    const tradeDates = filteredTrades.map(t => t.date.split('T')[0]);
+    const heatmapStartDate = globalStartDate ? globalStartDate.toISOString().split('T')[0] : (tradeDates.length > 0 ? tradeDates.reduce((a, b) => a < b ? a : b) : '');
+    const heatmapEndDate = globalEndDate ? globalEndDate.toISOString().split('T')[0] : (tradeDates.length > 0 ? tradeDates.reduce((a, b) => a > b ? a : b) : '');
+
     return (
         <motion.div 
             className="p-4 sm:p-6 space-y-6"
@@ -410,7 +465,7 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                     }
                                     icon="lucide:calendar-clock" 
                                     color={analytics.avgPnLPerDay >= 0 ? "success" : "danger"}
-                                 />
+                />
                                  <StatsCard title="Expectancy (%)" value={<div className="flex items-center gap-1">{analytics.expectancy.toFixed(2)}%<Tooltip content={`Avg Win PF Impact: ${analytics.avgWinPfImpact.toFixed(2)}%\nAvg Loss PF Impact: ${analytics.avgLossPfImpact.toFixed(2)}%`} placement="top" radius="sm" shadow="md" classNames={{ content: "bg-content1 border border-divider z-50 max-w-xs text-xs" }}><Icon icon="lucide:info" className="text-base text-foreground-400 cursor-help" /></Tooltip></div>} icon="lucide:trending-up" color={analytics.expectancy >= 0 ? "success" : "danger"}/>
                                  <StatsCard title="Profit Factor" value={<div className="flex items-center gap-1">{isFinite(analytics.profitFactor) ? analytics.profitFactor.toFixed(2) : "∞"}<Tooltip content={`Total Positive PF Impact: ${analytics.totalPositivePfImpact.toFixed(2)}%\nTotal Negative PF Impact: ${-analytics.totalAbsoluteNegativePfImpact.toFixed(2)}%`} placement="top" radius="sm" shadow="md" classNames={{ content: "bg-content1 border border-divider z-50 max-w-xs text-xs" }}><Icon icon="lucide:info" className="text-base text-foreground-400 cursor-help" /></Tooltip></div>} icon="lucide:line-chart" color={analytics.profitFactor >= 1 ? "success" : "danger"}/>
                                  <StatsCard title="Avg Win Hold" value={`${analytics.avgWinHold} Day${analytics.avgWinHold !== 1 ? 's' : ''}`} icon="lucide:clock" color="success"/>
@@ -435,7 +490,7 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                     </h2>
                 }>
                     <div className="space-y-4 p-2">
-                        {mappingLoaded && tradesWithIndustry.length > 0 && (
+                        {mappingLoaded && tradesWithIndustry.length > 0 && industryChartData.length > 0 && sectorChartData.length > 0 ? (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                                 <Tooltip content={<p className="text-xs break-words p-1">{industryStats.mostStocks.join(', ')}</p>} placement="top" radius="sm" shadow="md" classNames={{ content: "bg-content1 border border-divider" }}>
                                     <div><StatsCard title="Most Traded Industry" value={industryStats.most} icon="lucide:trending-up" color="primary" /></div>
@@ -450,13 +505,15 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                                     <div><StatsCard title="Least Traded Sector" value={sectorStats.least} icon="lucide:trending-down" color="warning" /></div>
                             </Tooltip>
                         </div>
+                        ) : (
+                            <div className="text-foreground-400 text-lg font-medium text-center w-full py-12">No data in this period.</div>
                         )}
-                        {mappingLoaded && tradesWithIndustry.length > 0 && (
+                        {mappingLoaded && tradesWithIndustry.length > 0 && industryChartData.length > 0 && sectorChartData.length > 0 ? (
                             <div className="space-y-6">
                                 {industryChartData.length > 0 && <IndustryDistributionChart data={industryChartData} colors={industryColors} title="Industry" />}
                                 {sectorChartData.length > 0 && <IndustryDistributionChart data={sectorChartData} colors={sectorColors} title="Sector" />}
-            </div>
-            )}
+                            </div>
+                        ) : null}
                     </div>
                 </AccordionItem>
 
@@ -467,7 +524,7 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                     </h2>
                 }>
                      <div className="p-2 space-y-6">
-                         {setupPerformance.length > 0 && (
+                         {setupPerformance.length > 0 ? (
                             <Card className="border-divider">
                                 <CardHeader>
                                     <div className="flex flex-col">
@@ -507,9 +564,11 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                                     </Table>
                                 </CardBody>
                             </Card>
+                         ) : (
+                            <div className="text-foreground-400 text-lg font-medium text-center w-full py-12">No data in this period.</div>
                          )}
 
-                        {!isLoading && trades.filter(t=>t.setup).length > 0 && (
+                        {!isLoading && trades.filter(t=>t.setup).length > 0 && setupPerformance.length > 0 ? (
                             <Card className="border-divider">
                                 <CardHeader>
                                      <div className="flex flex-col">
@@ -520,7 +579,7 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                                 <Divider/>
                  <SetupFrequencyChart trades={trades} />
                             </Card>
-                        )}
+            ) : null}
                      </div>
                 </AccordionItem>
 
@@ -531,7 +590,9 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                     </h2>
                 }>
                     <div className="p-2 space-y-6">
-                        {!isLoading && <PnLDistributionCharts trades={trades} />}
+                        {!isLoading && trades.length > 0 ? (
+                            <>
+                                <PnLDistributionCharts trades={trades} />
 
             <Card className="border border-divider">
                 <CardHeader className="flex gap-3 items-center">
@@ -557,9 +618,77 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
                     </Table>
                 </CardBody>
             </Card>
-                </div>
+                            </>
+                        ) : (
+                            <div className="text-foreground-400 text-lg font-medium text-center w-full py-12">No data in this period.</div>
+                        )}
+
+            </div>
                 </AccordionItem>
             </Accordion>
+
+            {/* Trading Activity Heatmap Card */}
+            <motion.div 
+                variants={{ 
+                    hidden: { opacity: 0, y: 20 }, 
+                    visible: { opacity: 1, y: 0 } 
+                }}
+                className="w-full"
+            >
+                <Card className="border border-divider bg-background">
+                    <CardHeader className="flex justify-between items-center pb-2">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-full bg-primary/10">
+                                <Icon icon="lucide:calendar-days" className="text-xl text-primary" />
+                            </div>
+                            <div>
+                                <h2 className="text-xl font-semibold text-foreground">Trading Activity</h2>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Icon icon="lucide:share-2" className="text-lg text-foreground-500 cursor-pointer hover:text-primary transition-colors" />
+                        </div>
+                    </CardHeader>
+                    <CardBody>
+                        <div className="overflow-x-auto pb-2 min-h-[180px] flex items-center justify-center">
+                            {filteredTrades.length === 0 ? (
+                                <div className="text-foreground-400 text-lg font-medium text-center w-full py-12">
+                                    No trades taken in this period.
+                                </div>
+                            ) : (
+                                <TradeHeatmap 
+                                    trades={filteredTrades} 
+                                    startDate={heatmapStartDate} 
+                                    endDate={heatmapEndDate}
+                                    className="min-w-[750px]"
+                                />
+                            )}
+                        </div>
+                        <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-divider justify-center text-xs text-foreground-500">
+                            <div className="flex items-center gap-2">
+                                <span className="inline-block w-3 h-3 bg-default-100 rounded border border-divider"></span>
+                                <span>No trades</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="inline-block w-3 h-3 bg-[#ff7f7f] rounded border border-divider"></span>
+                                <span>Min. loss</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="inline-block w-3 h-3 bg-[#d32f2f] rounded border border-divider"></span>
+                                <span>Max. loss</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="inline-block w-3 h-3 bg-[#c6e48b] rounded border border-divider"></span>
+                                <span>Min. profit</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="inline-block w-3 h-3 bg-[#7bc96f] rounded border border-divider"></span>
+                                <span>Max. profit</span>
+                            </div>
+                        </div>
+                    </CardBody>
+                </Card>
+            </motion.div>
         </motion.div>
     );
 };

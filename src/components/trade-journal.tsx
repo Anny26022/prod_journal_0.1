@@ -37,6 +37,30 @@ import { calcSLPercent, calcHoldingDays, calcUnrealizedPL, calcRealizedPL_FIFO, 
 import { fetchPriceTicks } from '../utils/priceTickApi';
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
+import { supabase } from '../utils/supabaseClient';
+
+// Supabase helpers for misc data
+async function fetchMiscData(key: string) {
+  const { data, error } = await supabase
+    .from('misc_data')
+    .select('value')
+    .eq('key', key)
+    .single();
+  if (error && error.code !== 'PGRST116') { // Ignore 'No rows found' error
+    console.error('Error fetching misc data:', error);
+    return null;
+  }
+  return data?.value || null;
+}
+
+async function upsertMiscData(key: string, value: any) {
+  const { error } = await supabase
+    .from('misc_data')
+    .upsert({ key, value }, { onConflict: 'key' });
+  if (error) {
+    console.error('Error upserting misc data:', error);
+  }
+}
 
 const csvUrl = '/name_sector_industry.csv';
 
@@ -100,6 +124,8 @@ export const TradeJournal = React.memo(function TradeJournal({
     setVisibleColumns
   } = useTrades();
   
+  const { portfolioSize, getPortfolioSize } = usePortfolio();
+  
   // Memoize filtered and sorted trades
   const processedTrades = useMemo(() => {
     return trades
@@ -107,9 +133,9 @@ export const TradeJournal = React.memo(function TradeJournal({
         if (!searchQuery) return true;
         const searchLower = searchQuery.toLowerCase();
         return (
-          trade.name.toLowerCase().includes(searchLower) ||
-          trade.setup?.toLowerCase().includes(searchLower) ||
-          trade.notes?.toLowerCase().includes(searchLower)
+          (trade.name || '').toLowerCase().includes(searchLower) ||
+          (trade.setup || '').toLowerCase().includes(searchLower) ||
+          (trade.notes || '').toLowerCase().includes(searchLower)
         );
       })
       .filter(trade => {
@@ -140,8 +166,8 @@ export const TradeJournal = React.memo(function TradeJournal({
           if (deadline.timeRemaining() > 0) {
             processedTrades.forEach(trade => {
               if (trade.positionStatus === "Open" || trade.positionStatus === "Partial") {
-                calcUnrealizedPL(trade);
-                calcOpenHeat(trade);
+                calcUnrealizedPL(trade.avgEntry, trade.cmp, trade.openQty, trade.buySell);
+                calcTradeOpenHeat(trade, portfolioSize, getPortfolioSize);
               }
             });
           }
@@ -150,7 +176,7 @@ export const TradeJournal = React.memo(function TradeJournal({
       );
       return () => cancelIdleCallback(handle);
     }
-  }, [processedTrades]);
+  }, [processedTrades, portfolioSize, getPortfolioSize]);
 
   const handleExport = (format: 'csv' | 'xlsx') => {
     // Use the raw, unfiltered trades from the hook for export
@@ -253,7 +279,6 @@ export const TradeJournal = React.memo(function TradeJournal({
   const { isOpen: isAddOpen, onOpen: onAddOpen, onOpenChange: onAddOpenChange } = useDisclosure();
   const { isOpen: isEditOpen, onOpen: onEditOpen, onOpenChange: onEditOpenChange } = useDisclosure();
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onOpenChange: onDeleteOpenChange } = useDisclosure();
-  const { portfolioSize } = usePortfolio();
   
   const [selectedTrade, setSelectedTrade] = React.useState<Trade | null>(null);
   const [page, setPage] = React.useState(1);
@@ -623,8 +648,6 @@ export const TradeJournal = React.memo(function TradeJournal({
     );
   };
 
-  const { getPortfolioSize } = usePortfolio();
-
   const renderCell = (trade: Trade, columnKey: string) => {
     const cellValue = trade[columnKey as keyof Trade];
 
@@ -645,12 +668,17 @@ export const TradeJournal = React.memo(function TradeJournal({
       const exitedQty = Number(trade.exitedQty);
       const openQty = Number(trade.openQty);
       const totalQty = exitedQty + openQty;
+
       // Gather all entry lots
       const entries = [
         { label: 'Initial Entry', price: Number(trade.entry), qty: Number(trade.initialQty) },
         { label: 'Pyramid 1', price: Number(trade.pyramid1Price), qty: Number(trade.pyramid1Qty) },
         { label: 'Pyramid 2', price: Number(trade.pyramid2Price), qty: Number(trade.pyramid2Qty) }
       ].filter(e => e.price > 0 && e.qty > 0);
+
+      // Calculate total quantity first - moved to top
+      const totalQtyAll = entries.reduce((sum, e) => sum + (e.qty || 0), 0);
+
       // Per-entry R:R breakdown
       const tsl = Number(trade.tsl);
       const entryBreakdown = entries.map(e => {
@@ -694,8 +722,7 @@ export const TradeJournal = React.memo(function TradeJournal({
           stop // for tooltip display
         };
       });
-      // Calculate weighted average R:R for all entries
-      const totalQtyAll = entryBreakdown.reduce((sum, e) => sum + (e.qty || 0), 0);
+      // Calculate weighted average R:R for all entries (using totalQtyAll from above)
       const weightedRR = totalQtyAll > 0
         ? entryBreakdown.reduce((sum, e) => sum + (e.rrValue * (e.qty || 0)), 0) / totalQtyAll
         : 0;
@@ -2083,13 +2110,13 @@ const GROWTH_AREAS_LOCAL_KEY = 'custom_growth_areas_options';
 const ProficiencyGrowthAreasCell: React.FC<ProficiencyGrowthAreasCellProps> = React.memo(function ProficiencyGrowthAreasCell({ value, onSave }) {
   const [options, setOptions] = React.useState<string[]>([...PROFICIENCY_GROWTH_AREAS]);
   React.useEffect(() => {
-    const stored = localStorage.getItem(GROWTH_AREAS_LOCAL_KEY);
-    if (stored) {
-      try {
-        const arr = JSON.parse(stored);
-        if (Array.isArray(arr)) setOptions([...PROFICIENCY_GROWTH_AREAS, ...arr.filter(o => !PROFICIENCY_GROWTH_AREAS.includes(o))]);
-      } catch {}
-    }
+    fetchMiscData(GROWTH_AREAS_LOCAL_KEY).then((stored) => {
+      if (stored) {
+        try {
+          if (Array.isArray(stored)) setOptions([...PROFICIENCY_GROWTH_AREAS, ...stored.filter(o => !PROFICIENCY_GROWTH_AREAS.includes(o))]);
+        } catch {}
+      }
+    });
   }, []);
 
   const handleSelect = (selected: string) => {
@@ -2098,7 +2125,7 @@ const ProficiencyGrowthAreasCell: React.FC<ProficiencyGrowthAreasCellProps> = Re
       if (newValue && !options.some(o => o.toLowerCase() === newValue.toLowerCase())) {
         const newOptions = [...options, newValue];
         setOptions(newOptions);
-        localStorage.setItem(GROWTH_AREAS_LOCAL_KEY, JSON.stringify(newOptions.filter(o => !PROFICIENCY_GROWTH_AREAS.includes(o))));
+        upsertMiscData(GROWTH_AREAS_LOCAL_KEY, newOptions.filter(o => !PROFICIENCY_GROWTH_AREAS.includes(o)));
         onSave(newValue);
       } else if (newValue) {
         onSave(newValue);
@@ -2407,13 +2434,13 @@ const SetupCell: React.FC<SetupCellProps> = React.memo(({ value, onSave }) => {
   const [options, setOptions] = React.useState<string[]>([...SETUP_OPTIONS]);
 
   React.useEffect(() => {
-    const stored = localStorage.getItem(SETUP_LOCAL_KEY);
-    if (stored) {
-      try {
-        const arr = JSON.parse(stored);
-        if (Array.isArray(arr)) setOptions([...SETUP_OPTIONS, ...arr.filter(o => !SETUP_OPTIONS.includes(o))]);
-      } catch {}
-    }
+    fetchMiscData(SETUP_LOCAL_KEY).then((stored) => {
+      if (stored) {
+        try {
+          if (Array.isArray(stored)) setOptions([...SETUP_OPTIONS, ...stored.filter(o => !SETUP_OPTIONS.includes(o))]);
+        } catch {}
+      }
+    });
   }, []);
 
   const handleSelect = (selected: string) => {
@@ -2422,7 +2449,7 @@ const SetupCell: React.FC<SetupCellProps> = React.memo(({ value, onSave }) => {
       if (newValue && !options.some(o => o.toLowerCase() === newValue.toLowerCase())) {
         const newOptions = [...options, newValue];
         setOptions(newOptions);
-        localStorage.setItem(SETUP_LOCAL_KEY, JSON.stringify(newOptions.filter(o => !SETUP_OPTIONS.includes(o))));
+        upsertMiscData(SETUP_LOCAL_KEY, newOptions.filter(o => !SETUP_OPTIONS.includes(o)));
         onSave(newValue);
       } else if (newValue) {
         onSave(newValue); // If already exists, just select it
@@ -2488,13 +2515,13 @@ const ExitTriggerCell: React.FC<ExitTriggerCellProps> = React.memo(({ value, onS
   const [options, setOptions] = React.useState<string[]>([...EXIT_TRIGGER_OPTIONS]);
 
   React.useEffect(() => {
-    const stored = localStorage.getItem(EXIT_TRIGGER_LOCAL_KEY);
-    if (stored) {
-      try {
-        const arr = JSON.parse(stored);
-        if (Array.isArray(arr)) setOptions([...EXIT_TRIGGER_OPTIONS, ...arr.filter(o => !EXIT_TRIGGER_OPTIONS.includes(o))]);
-      } catch {}
-    }
+    fetchMiscData(EXIT_TRIGGER_LOCAL_KEY).then((stored) => {
+      if (stored) {
+        try {
+          if (Array.isArray(stored)) setOptions([...EXIT_TRIGGER_OPTIONS, ...stored.filter(o => !EXIT_TRIGGER_OPTIONS.includes(o))]);
+        } catch {}
+      }
+    });
   }, []);
 
   const handleSelect = (selected: string) => {
@@ -2503,7 +2530,7 @@ const ExitTriggerCell: React.FC<ExitTriggerCellProps> = React.memo(({ value, onS
       if (newValue && !options.some(o => o.toLowerCase() === newValue.toLowerCase())) {
         const newOptions = [...options, newValue];
         setOptions(newOptions);
-        localStorage.setItem(EXIT_TRIGGER_LOCAL_KEY, JSON.stringify(newOptions.filter(o => !EXIT_TRIGGER_OPTIONS.includes(o))));
+        upsertMiscData(EXIT_TRIGGER_LOCAL_KEY, newOptions.filter(o => !EXIT_TRIGGER_OPTIONS.includes(o)));
         onSave(newValue);
       } else if (newValue) {
         onSave(newValue);

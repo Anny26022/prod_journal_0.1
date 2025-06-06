@@ -16,24 +16,15 @@ import { GlobalFilterBar } from "./components/GlobalFilterBar";
 import { TradeTrackerLogo } from './components/icons/TradeTrackerLogo';
 import { AnimatedBrandName } from './components/AnimatedBrandName';
 import DeepAnalyticsPage from "./pages/DeepAnalyticsPage";
+import { supabase, SINGLE_USER_ID } from './utils/supabaseClient';
 
 export default function App() {
   const location = useLocation();
   const { theme } = useTheme();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('isMobileMenuOpen');
-      return saved ? JSON.parse(saved) : false;
-    }
-    return false;
-  });
-  const [isProfileOpen, setIsProfileOpen] = React.useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('isProfileOpen');
-      return saved ? JSON.parse(saved) : false;
-    }
-    return false;
-  });
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+  const [isProfileOpen, setIsProfileOpen] = React.useState(false);
+  const [userName, setUserName] = React.useState('Aniket Mahato');
+  const [loadingPrefs, setLoadingPrefs] = React.useState(true);
 
   const mainContentRef = useRef<HTMLElement>(null);
   const [isMainContentFullscreen, setIsMainContentFullscreen] = useState(false);
@@ -44,19 +35,36 @@ export default function App() {
     }
     return 'Aniket Mahato';
   };
-  const [userName, setUserName] = React.useState(getDefaultUserName);
 
   React.useEffect(() => {
-    localStorage.setItem('isMobileMenuOpen', JSON.stringify(isMobileMenuOpen));
-  }, [isMobileMenuOpen]);
+    // Load preferences from Supabase on mount
+    fetchUserPreferences().then((prefs) => {
+      if (prefs) {
+        setIsMobileMenuOpen(!!prefs.is_mobile_menu_open);
+        setIsProfileOpen(!!prefs.is_profile_open);
+        setUserName(prefs.user_name || 'Aniket Mahato');
+      }
+      setLoadingPrefs(false);
+    });
+  }, []);
 
   React.useEffect(() => {
-    localStorage.setItem('isProfileOpen', JSON.stringify(isProfileOpen));
-  }, [isProfileOpen]);
+    if (!loadingPrefs) {
+      upsertUserPreferences({ is_mobile_menu_open: isMobileMenuOpen });
+    }
+  }, [isMobileMenuOpen, loadingPrefs]);
 
   React.useEffect(() => {
-    localStorage.setItem('userName', userName);
-  }, [userName]);
+    if (!loadingPrefs) {
+      upsertUserPreferences({ is_profile_open: isProfileOpen });
+    }
+  }, [isProfileOpen, loadingPrefs]);
+
+  React.useEffect(() => {
+    if (!loadingPrefs) {
+      upsertUserPreferences({ user_name: userName });
+    }
+  }, [userName, loadingPrefs]);
 
   const handleToggleMainContentFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -82,6 +90,26 @@ export default function App() {
     { path: "/monthly-performance", name: "Monthly Performance", icon: "lucide:calendar-check" },
     { path: "/deep-analytics", name: "Deep Analytics", icon: "lucide:pie-chart" }
   ];
+
+  // Supabase helpers for user preferences
+  async function fetchUserPreferences() {
+    const { data, error } = await supabase
+      .from('user_preferences')
+      .select('*')
+      .eq('id', SINGLE_USER_ID)
+      .single();
+    if (error && error.code !== 'PGRST116') { // Ignore no rows found
+      console.error('Error fetching user preferences:', error);
+    }
+    return data;
+  }
+
+  async function upsertUserPreferences(prefs: Partial<{ is_mobile_menu_open: boolean; is_profile_open: boolean; user_name: string }>) {
+    const { error } = await supabase
+      .from('user_preferences')
+      .upsert({ id: SINGLE_USER_ID, ...prefs }, { onConflict: 'id' });
+    if (error) console.error('Supabase upsert error:', error);
+  }
 
   return (
     <PortfolioProvider>

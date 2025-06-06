@@ -2,6 +2,7 @@ import React from 'react';
 import { CapitalChange, MonthlyCapital, MonthlyCapitalHistory } from '../types/trade';
 import { generateId } from '../utils/helpers';
 import { usePortfolio } from '../utils/PortfolioContext';
+import { supabase, SINGLE_USER_ID } from '../utils/supabaseClient';
 
 const CAPITAL_CHANGES_STORAGE_KEY = 'capital_changes';
 const MONTHLY_CAPITAL_HISTORY_KEY = 'monthly_capital_history';
@@ -37,6 +38,45 @@ const saveMonthlyCapitalHistory = (history: MonthlyCapitalHistory[]) => {
   }
 };
 
+// Supabase helpers
+async function fetchCapitalChanges() {
+  const { data, error } = await supabase
+    .from('capital_changes')
+    .select('changes')
+    .eq('id', SINGLE_USER_ID)
+    .single();
+  if (error && error.code !== 'PGRST116') {
+    console.error('Error fetching capital changes:', error);
+  }
+  return data?.changes || [];
+}
+
+async function upsertCapitalChanges(changes: any[]) {
+  const { error } = await supabase
+    .from('capital_changes')
+    .upsert({ id: SINGLE_USER_ID, changes }, { onConflict: 'id' });
+  if (error) console.error('Supabase upsert error:', error);
+}
+
+async function fetchMonthlyCapitalHistory() {
+  const { data, error } = await supabase
+    .from('monthly_capital_history')
+    .select('history')
+    .eq('id', SINGLE_USER_ID)
+    .single();
+  if (error && error.code !== 'PGRST116') {
+    console.error('Error fetching monthly capital history:', error);
+  }
+  return data?.history || [];
+}
+
+async function upsertMonthlyCapitalHistory(history: any[]) {
+  const { error } = await supabase
+    .from('monthly_capital_history')
+    .upsert({ id: SINGLE_USER_ID, history }, { onConflict: 'id' });
+  if (error) console.error('Supabase upsert error:', error);
+}
+
 export const useCapitalChanges = (trades: any[], initialPortfolioSize: number) => {
   const { getPortfolioSize, setPortfolioSize, monthlyPortfolioSizes } = usePortfolio();
   
@@ -47,30 +87,32 @@ export const useCapitalChanges = (trades: any[], initialPortfolioSize: number) =
   const [capitalChanges, setCapitalChanges] = React.useState<CapitalChange[]>([]);
   const [monthlyCapital, setMonthlyCapital] = React.useState<MonthlyCapital[]>([]);
   const [monthlyCapitalHistory, setMonthlyCapitalHistory] = React.useState<MonthlyCapitalHistory[]>([]);
+  const [loading, setLoading] = React.useState(true);
 
-  // Load capital changes and monthly capital history from localStorage
+  // Load from Supabase on mount
   React.useEffect(() => {
-    const loadedChanges = loadCapitalChanges();
-    setCapitalChanges(loadedChanges);
-    const loadedHistory = loadMonthlyCapitalHistory();
-    setMonthlyCapitalHistory(loadedHistory);
+    fetchCapitalChanges().then((loadedChanges) => {
+      setCapitalChanges(loadedChanges);
+      fetchMonthlyCapitalHistory().then((loadedHistory) => {
+        setMonthlyCapitalHistory(loadedHistory);
+        setLoading(false);
+      });
+    });
   }, []);
 
-  // Save capital changes to localStorage
+  // Save capital changes to Supabase
   React.useEffect(() => {
-    if (capitalChanges.length > 0) {
-      try {
-        localStorage.setItem(CAPITAL_CHANGES_STORAGE_KEY, JSON.stringify(capitalChanges));
-      } catch (error) {
-        console.error('Error saving capital changes to localStorage:', error);
-      }
+    if (!loading) {
+      upsertCapitalChanges(capitalChanges);
     }
-  }, [capitalChanges]);
+  }, [capitalChanges, loading]);
 
-  // Save monthly capital history to localStorage
+  // Save monthly capital history to Supabase
   React.useEffect(() => {
-    saveMonthlyCapitalHistory(monthlyCapitalHistory);
-  }, [monthlyCapitalHistory]);
+    if (!loading) {
+      upsertMonthlyCapitalHistory(monthlyCapitalHistory);
+    }
+  }, [monthlyCapitalHistory, loading]);
 
     // Calculate monthly capital data
   React.useEffect(() => {
