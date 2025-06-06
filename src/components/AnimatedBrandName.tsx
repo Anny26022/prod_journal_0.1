@@ -1,8 +1,12 @@
 import React from 'react';
 
-export const AnimatedBrandName: React.FC = () => {
+interface AnimatedBrandNameProps {
+  className?: string;
+}
+
+export const AnimatedBrandName: React.FC<AnimatedBrandNameProps> = ({ className = '' }) => {
   return (
-    <div className="hidden sm:flex items-center overflow-hidden">
+    <div className={`hidden sm:flex items-center overflow-hidden ${className}`}>
       <style>
         {`
           @keyframes slideUp {

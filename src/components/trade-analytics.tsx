@@ -41,6 +41,15 @@ export const TradeAnalytics = React.memo(function TradeAnalytics() {
     setChartData(data);
   }, []);
   
+  const containerVariants = {
+    initial: {},
+    animate: {
+      transition: {
+        staggerChildren: 0.1,
+      },
+    },
+  };
+
   return (
     <motion.div 
       className="space-y-6"
@@ -56,14 +65,15 @@ export const TradeAnalytics = React.memo(function TradeAnalytics() {
         {/* Removed ALL dropdown and Export button as requested */}
       </motion.div>
       
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <motion.div 
+        className="grid grid-cols-1 lg:grid-cols-3 gap-6"
+        variants={containerVariants}
+        initial="initial"
+        animate="animate"
+      >
         <motion.div
           className="lg:col-span-2"
           variants={cardVariants}
-          initial="initial"
-          animate="animate"
-          whileHover="hover"
-          whileTap="tap"
         >
           <Card>
             <CardHeader className="flex flex-col gap-2">
@@ -125,10 +135,6 @@ export const TradeAnalytics = React.memo(function TradeAnalytics() {
         
         <motion.div
           variants={cardVariants}
-          initial="initial"
-          animate="animate"
-          whileHover="hover"
-          whileTap="tap"
         >
           <Card>
             <CardHeader>
@@ -139,15 +145,16 @@ export const TradeAnalytics = React.memo(function TradeAnalytics() {
             </CardBody>
           </Card>
         </motion.div>
-      </div>
+      </motion.div>
       
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <motion.div 
+        className="grid grid-cols-1 md:grid-cols-2 gap-6"
+        variants={containerVariants}
+        initial="initial"
+        animate="animate"
+      >
         <motion.div
           variants={cardVariants}
-          initial="initial"
-          animate="animate"
-          whileHover="hover"
-          whileTap="tap"
         >
           <Card>
             <CardHeader>
@@ -162,10 +169,6 @@ export const TradeAnalytics = React.memo(function TradeAnalytics() {
         
         <motion.div
           variants={cardVariants}
-          initial="initial"
-          animate="animate"
-          whileHover="hover"
-          whileTap="tap"
         >
           <Card>
             <CardHeader className="flex justify-between items-center">
@@ -177,7 +180,7 @@ export const TradeAnalytics = React.memo(function TradeAnalytics() {
             </CardBody>
           </Card>
         </motion.div>
-      </div>
+      </motion.div>
     </motion.div>
   );
 });

@@ -16,7 +16,7 @@ interface PortfolioContextType {
 }
 
 const PORTFOLIO_SIZES_KEY = 'monthlyPortfolioSizes';
-const DEFAULT_PORTFOLIO_SIZE = 1000000; // Default 10 lakh
+const DEFAULT_PORTFOLIO_SIZE = 100000; // Default 100k
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
 

@@ -45,6 +45,7 @@ export interface Trade {
   exitTrigger: string;
   proficiencyGrowthAreas: string;
   openHeat: number;
+  notes?: string;
 }
 
 export interface CapitalChange {

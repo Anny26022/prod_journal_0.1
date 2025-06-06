@@ -19,7 +19,11 @@ import {
   Card,
   CardBody,
   User,
-  SortDescriptor as HeroSortDescriptor
+  SortDescriptor as HeroSortDescriptor,
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+  Textarea
 } from "@heroui/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Icon } from "@iconify/react";
@@ -30,8 +34,11 @@ import { format } from 'date-fns';
 import { usePortfolio } from "../utils/PortfolioContext";
 import { tableRowVariants, springTransition } from "../utils/animations";
 import { calcSLPercent, calcHoldingDays, calcUnrealizedPL, calcRealizedPL_FIFO, calcOpenHeat, calcIndividualMoves } from "../utils/tradeCalculations";
+import { fetchPriceTicks } from '../utils/priceTickApi';
+import * as XLSX from 'xlsx';
+import Papa from 'papaparse';
 
-const csvUrl = new URL('/name_sector_industry.csv', import.meta.url).href;
+const csvUrl = '/name_sector_industry.csv';
 
 // Format a date string to a readable format
 const formatDate = (dateString: string) => {
@@ -62,8 +69,6 @@ export interface TradeJournalProps {
     winRate?: string;
     totalPL?: string;
   };
-  toggleFullscreen?: () => void;
-  isFullscreen?: boolean;
 }
 
 export const TradeJournal = React.memo(function TradeJournal({ 
@@ -74,8 +79,6 @@ export const TradeJournal = React.memo(function TradeJournal({
     winRate: "Win Rate",
     totalPL: "Total P/L"
   },
-  toggleFullscreen,
-  isFullscreen
 }: TradeJournalProps) {
   const { 
     trades, 
@@ -92,6 +95,104 @@ export const TradeJournal = React.memo(function TradeJournal({
     visibleColumns,
     setVisibleColumns
   } = useTrades();
+  
+  const handleExport = (format: 'csv' | 'xlsx') => {
+    // Use the raw, unfiltered trades from the hook for export
+    const allTradesForExport = trades; 
+
+    // Define the headers for the export, ensuring they match the allColumns definitions
+    const exportHeaders = allColumns
+      .filter(col => col.key !== 'actions' && col.key !== 'unrealizedPL') // Exclude non-data columns
+      .map(col => ({ label: col.label, key: col.key }));
+
+    const dataToExport = allTradesForExport.map(trade => {
+      const row: { [key: string]: any } = {};
+      exportHeaders.forEach(header => {
+        row[header.label] = trade[header.key as keyof Trade];
+      });
+      return row;
+    });
+
+    if (format === 'csv') {
+      const csv = Papa.unparse(dataToExport);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", `trade_journal_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else if (format === 'xlsx') {
+      const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Trades");
+      XLSX.writeFile(workbook, `trade_journal_${new Date().toISOString().split('T')[0]}.xlsx`);
+    }
+  };
+  
+  const handleAddNewBlankTrade = useCallback(() => {
+    // Find the max tradeNo among existing trades (as a number)
+    const maxTradeNo = trades.length > 0
+      ? Math.max(
+          ...trades
+            .map(t => Number(t.tradeNo))
+            .filter(n => !isNaN(n))
+        )
+      : 0;
+
+    const newTrade: Trade = {
+      id: `trade_${new Date().getTime()}_${Math.random()}`,
+      tradeNo: String(maxTradeNo + 1),
+      date: new Date().toISOString(),
+      name: '',
+      setup: '',
+      buySell: 'Buy',
+      entry: 0,
+      avgEntry: 0,
+      sl: 0,
+      tsl: 0,
+      cmp: 0,
+      initialQty: 0,
+      pyramid1Price: 0,
+      pyramid1Qty: 0,
+      pyramid1Date: '',
+      pyramid2Price: 0,
+      pyramid2Qty: 0,
+      pyramid2Date: '',
+      positionSize: 0,
+      allocation: 0,
+      exit1Price: 0,
+      exit1Qty: 0,
+      exit1Date: '',
+      exit2Price: 0,
+      exit2Qty: 0,
+      exit2Date: '',
+      exit3Price: 0,
+      exit3Qty: 0,
+      exit3Date: '',
+      openQty: 0,
+      exitedQty: 0,
+      avgExitPrice: 0,
+      stockMove: 0,
+      openHeat: 0,
+      rewardRisk: 0,
+      holdingDays: 0,
+      positionStatus: 'Open',
+      realisedAmount: 0,
+      plRs: 0,
+      pfImpact: 0,
+      cummPf: 0,
+      planFollowed: true,
+      exitTrigger: '',
+      proficiencyGrowthAreas: '',
+      baseDuration: '',
+      slPercent: 0,
+      notes: '',
+    };
+    addTrade(newTrade);
+  }, [addTrade, trades]);
   
   const { isOpen: isAddOpen, onOpen: onAddOpen, onOpenChange: onAddOpenChange } = useDisclosure();
   const { isOpen: isEditOpen, onOpen: onEditOpen, onOpenChange: onEditOpenChange } = useDisclosure();
@@ -157,6 +258,7 @@ export const TradeJournal = React.memo(function TradeJournal({
     { key: "proficiencyGrowthAreas", label: "Growth Areas" },
     { key: "actions", label: "Actions", sortable: false },
     { key: 'unrealizedPL', label: 'Unrealized P/L', sortable: false },
+    { key: 'notes', label: 'Notes', sortable: false },
   ], []);
 
   const headerColumns = React.useMemo(() => {
@@ -230,16 +332,27 @@ export const TradeJournal = React.memo(function TradeJournal({
 
       // Create updated trade with the new value
       const updatedTrade = { ...tradeToUpdate, [field]: parsedValue };
-    
+
+      // If the field is 'name', fetch the latest price and update cmp
+      if (field === 'name' && parsedValue) {
+        try {
+          const priceData = await fetchPriceTicks(parsedValue);
+          const ticks = priceData?.data?.ticks?.[parsedValue.toUpperCase()];
+          if (ticks && ticks.length > 0) {
+            const latestTick = ticks[ticks.length - 1];
+            updatedTrade.cmp = latestTick[4]; // index 4 is close price
+          }
+        } catch (err) {
+          updatedTrade.cmp = 0;
+        }
+      }
+
       // Recalculate dependent fields if needed
       if ([
         'entry', 'sl', 'tsl', 'initialQty', 'pyramid1Qty', 'pyramid2Qty', 
         'exit1Price', 'exit2Price', 'exit3Price', 'cmp'
       ].includes(field as string)) {
-        // ... existing code ...
-        // Recalculate openHeat for this trade
         updatedTrade.openHeat = calcTradeOpenHeat(updatedTrade, portfolioSize, getPortfolioSize);
-        // ... existing code ...
       }
 
       // Validation: Pyramid/Exit dates cannot be before entry date
@@ -255,13 +368,11 @@ export const TradeJournal = React.memo(function TradeJournal({
       }
 
       try {
-        // Update the trade in the state
         await updateTrade(updatedTrade);
-        setEditingId(null); // Clear editing state
+        setEditingId(null);
         console.log('Trade updated successfully:', updatedTrade);
       } catch (error) {
         console.error('Error updating trade:', error);
-        // Optionally show an error message to the user
       }
     } catch (error) {
       console.error('Error in handleInlineEditSave:', error);
@@ -789,7 +900,14 @@ export const TradeJournal = React.memo(function TradeJournal({
       );
     }
 
-
+    if (columnKey === 'notes') {
+      return (
+        <NotesCell
+          value={trade.notes || ''}
+          onSave={(value) => handleInlineEditSave(trade.id, 'notes', value)}
+        />
+      );
+    }
 
     switch (columnKey) {
       // Text fields - only allow editing non-required fields
@@ -859,30 +977,9 @@ export const TradeJournal = React.memo(function TradeJournal({
       // Setup field (editable with dropdown)
       case "setup":
         return (
-          <EditableCell 
+          <SetupCell 
             value={cellValue as string} 
             onSave={(value) => handleInlineEditSave(trade.id, columnKey as keyof Trade, value)}
-            type="select"
-            options={[
-              "ITB",
-              "Chop BO",
-              "IPO Base",
-              "3/5/8",
-              "21/50",
-              "Breakout",
-              "Pullback",
-              "Reversal",
-              "Continuation",
-              "Gap Fill",
-              "OTB",
-              "Stage 2",
-              "ONP BO",
-              "EP",
-              "Pivot Bo",
-              "Cheat",
-              "Flag",
-              "Other"
-            ]}
           />
         );
         
@@ -892,27 +989,6 @@ export const TradeJournal = React.memo(function TradeJournal({
           <EditableCell 
             value={cellValue as string} 
             onSave={(value) => handleInlineEditSave(trade.id, columnKey as keyof Trade, value)}
-            type="select"
-            options={[
-              "Biased Analysis",
-              "Booked Early",
-              "Didn't Book Loss",
-              "FOMO",
-              "Illiquid Stock",
-              "Illogical SL",
-              "Lack of Patience",
-              "Late Entry",
-              "Momentum-less stock",
-              "Overconfidence",
-              "Overtrading",
-              "Poor Exit",
-              "Poor Po Size",
-              "Poor Sector",
-              "Poor Stock",
-              "Shifted SL Suickly",
-              "Too Early Entry",
-              "Too Tight SL"
-            ]}
           />
         );
         
@@ -1073,6 +1149,13 @@ export const TradeJournal = React.memo(function TradeJournal({
             {calcTradeOpenHeat(trade, portfolioSize, getPortfolioSize).toFixed(2)}%
           </div>
         );
+      case 'notes':
+        return (
+          <NotesCell
+            value={trade.notes || ''}
+            onSave={(value) => handleInlineEditSave(trade.id, 'notes', value)}
+          />
+        );
       default:
         const val = trade[columnKey as keyof Trade];
         return val !== undefined && val !== null ? String(val) : "-";
@@ -1117,6 +1200,51 @@ export const TradeJournal = React.memo(function TradeJournal({
     // Use a simple sum of trade ids and portfolioSize for a fast hash
     return trades.map(t => t.id).join('-') + '-' + portfolioSize;
   }
+
+  useEffect(() => {
+    // Immediate fetch on mount or trades change
+    (async () => {
+      const openTrades = trades.filter(t => t.positionStatus === 'Open' || t.positionStatus === 'Partial');
+      for (const trade of openTrades) {
+        if (trade.name) {
+          try {
+            const priceData = await fetchPriceTicks(trade.name);
+            const ticks = priceData?.data?.ticks?.[trade.name.toUpperCase()];
+            if (ticks && ticks.length > 0) {
+              const latestTick = ticks[ticks.length - 1];
+              if (trade.cmp !== latestTick[4]) {
+                updateTrade({ ...trade, cmp: latestTick[4] });
+              }
+            }
+          } catch (err) {
+            // Optionally handle error
+          }
+        }
+      }
+    })();
+
+    // Continue polling every 15 seconds
+    const interval = setInterval(async () => {
+      const openTrades = trades.filter(t => t.positionStatus === 'Open' || t.positionStatus === 'Partial');
+      for (const trade of openTrades) {
+        if (trade.name) {
+          try {
+            const priceData = await fetchPriceTicks(trade.name);
+            const ticks = priceData?.data?.ticks?.[trade.name.toUpperCase()];
+            if (ticks && ticks.length > 0) {
+              const latestTick = ticks[ticks.length - 1];
+              if (trade.cmp !== latestTick[4]) {
+                updateTrade({ ...trade, cmp: latestTick[4] });
+              }
+            }
+          } catch (err) {
+            // Optionally handle error
+          }
+        }
+      }
+    }, 15000); // 15 seconds
+    return () => clearInterval(interval);
+  }, [trades, updateTrade]);
 
   return (
     <div className="space-y-4">
@@ -1179,6 +1307,7 @@ export const TradeJournal = React.memo(function TradeJournal({
                   selectionMode="multiple"
                   selectedKeys={new Set(visibleColumns)}
                   onSelectionChange={(keys) => setVisibleColumns(Array.from(keys as Set<string>))}
+                  className="max-h-[300px] overflow-y-auto"
                 >
                   {allColumns.filter(col => col.key !== "actions").map((column) => (
                     <DropdownItem key={column.key} className="capitalize">
@@ -1190,60 +1319,89 @@ export const TradeJournal = React.memo(function TradeJournal({
             </div>
 
             <motion.div
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="flex items-center gap-2"
+              className="flex items-center gap-1"
             >
-              {toggleFullscreen && (
-                <Tooltip content={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"} placement="bottom">
-                  <Button 
-                    isIconOnly
-                    variant="flat" 
-                    size="sm" 
-                    onPress={toggleFullscreen}
-                    className="shadow-sm hover:shadow-md transition-all duration-200"
-                  >
-                    <Icon icon={isFullscreen ? "lucide:minimize-2" : "lucide:maximize-2"} className="text-lg" />
-                  </Button>
-                </Tooltip>
-              )}
-              <Button 
+              <Button
                 isIconOnly
-                color="primary" 
+                color="primary"
+                variant="light"
                 onPress={onAddOpen}
                 size="sm"
-                className="bg-primary shadow-sm hover:shadow-md transition-all duration-200"
+                className="rounded-md p-1 hover:bg-primary/10 transition"
               >
-                <Icon icon="lucide:plus" className="text-lg" />
+                <Icon icon="lucide:plus" className="text-base" />
               </Button>
             </motion.div>
+            <Dropdown>
+              <DropdownTrigger>
+                <Button
+                  isIconOnly
+                  variant="light"
+                  size="sm"
+                  className="rounded-md p-1 hover:bg-primary/10 transition"
+                >
+                  <Icon icon="lucide:download" className="text-base" />
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu 
+                aria-label="Export options"
+                onAction={(key) => handleExport(key as 'csv' | 'xlsx')}
+              >
+                <DropdownItem key="csv" startContent={<Icon icon="lucide:file-text" />}>
+                  Export as CSV
+                </DropdownItem>
+                <DropdownItem key="xlsx" startContent={<Icon icon="lucide:file-spreadsheet" />}>
+                  Export as Excel
+                </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
           </div>
         </AnimatePresence>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-center">
-        <StatsCard 
-          title={statsTitle.totalTrades} 
-          value={trades.length.toString()} 
-          icon="lucide:list" 
-          color="primary"
-        />
-        <StatsCard 
-          title={statsTitle.openPositions} 
-          value={trades.filter(t => t.positionStatus === "Open").length.toString()} 
-          icon="lucide:activity" 
-          color="warning"
-        />
-        <StatsCard 
-          title={statsTitle.winRate} 
-          value={
-            trades.length > 0
-              ? ((trades.filter(t => t.plRs > 0).length / trades.length) * 100).toFixed(2) + '%'
-              : '0.00%'
-          }
-          icon="lucide:target" 
-          color="success"
-        />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 items-center">
+        {/* First three stats: Total Trades, Open Positions, Win Rate */}
+        {[{
+          title: statsTitle.totalTrades,
+          value: trades.length.toString(),
+          icon: "lucide:list",
+          color: "primary",
+          tooltip: "Total number of trades you have recorded."
+        }, {
+          title: statsTitle.openPositions,
+          value: trades.filter(t => t.positionStatus === "Open").length.toString(),
+          icon: "lucide:activity",
+          color: "warning",
+          tooltip: "Number of trades that are currently open."
+        }, {
+          title: statsTitle.winRate,
+          value: trades.length > 0 ? ((trades.filter(t => t.plRs > 0).length / trades.length) * 100).toFixed(2) + '%' : '0.00%',
+          icon: "lucide:target",
+          color: "success",
+          tooltip: "Percentage of trades that are profitable."
+        }].map((stat, idx) => (
+          <div key={stat.title} className="flex items-center gap-2">
+            <StatsCard 
+              title={stat.title} 
+              value={stat.value} 
+              icon={stat.icon} 
+              color={
+                idx === 0 ? "primary" : idx === 1 ? "warning" : "success"
+              }
+            />
+            {/* Show info icon only on mobile for first three stats */}
+            <div className="block sm:hidden">
+              <Tooltip
+                placement="top"
+                className="max-w-xs text-xs p-1 bg-content1 border border-divider"
+                content={<div>{stat.tooltip}</div>}
+              >
+                <Icon icon="lucide:info" className="text-base text-foreground-400 cursor-pointer inline-block align-middle ml-2" />
+              </Tooltip>
+            </div>
+          </div>
+        ))}
+        {/* Last three stats: Realized P/L, Unrealized P/L, Open Heat */}
         <div className="flex items-center gap-2">
           <StatsCard 
             title="Realized P/L" 
@@ -1294,7 +1452,6 @@ export const TradeJournal = React.memo(function TradeJournal({
         </div>
         <div className="flex items-center gap-1">
           <StatsCard
-            // Add a key to force re-render on trades or portfolioSize change
             key={trades.length + '-' + portfolioSize + '-' + trades.map(t => t.id).join('-')}
             title="Open Heat"
             value={calcOpenHeat(trades, portfolioSize, getPortfolioSize).toFixed(2) + "%"}
@@ -1345,15 +1502,24 @@ export const TradeJournal = React.memo(function TradeJournal({
             aria-label="Trade journal table"
             bottomContent={
               pages > 0 ? (
-                <div className="flex w-full justify-center py-2">
+                <div className="flex w-full justify-center items-center gap-4 py-2">
                   <Pagination
                     isCompact
                     showControls
-                    showShadow
+                    showShadow={false}
                     color="primary"
+                    size="sm"
+                    variant="light"
                     page={page}
                     total={pages}
-                    onChange={setPage}
+                    onChange={(p) => setPage(p)}
+                    classNames={{
+                      item: "rounded-md px-2 py-1 text-xs",
+                      cursor: "rounded-md px-2 py-1 text-xs",
+                      prev: "rounded-md px-2 py-1 text-xs",
+                      next: "rounded-md px-2 py-1 text-xs",
+                      ellipsis: "px-1 text-xs"
+                    }}
                   />
                 </div>
               ) : null
@@ -1390,6 +1556,20 @@ export const TradeJournal = React.memo(function TradeJournal({
               )}
             </TableBody>
           </Table>
+          {/* Sleek, small add inline trade icon below the table */}
+          <Tooltip content="Add new trade (inline)" placement="top">
+            <Button
+              isIconOnly
+              color="primary"
+              variant="light"
+              onPress={handleAddNewBlankTrade}
+              size="sm"
+              className="mt-2"
+              style={{ display: 'block', margin: '0 auto' }}
+            >
+              <Icon icon="lucide:list-plus" className="text-lg" />
+            </Button>
+          </Tooltip>
           </div>
         </CardBody>
       </Card>
@@ -1825,7 +2005,7 @@ interface ProficiencyGrowthAreasCellProps {
 
 const PROFICIENCY_GROWTH_AREAS = [
   'Booked Early',
-  'Didn\'t Book Loss',
+  "Didn't Book Loss",
   'FOMO',
   'Illiquid Stock',
   'Illogical SL',
@@ -1842,16 +2022,40 @@ const PROFICIENCY_GROWTH_AREAS = [
   'Too Early Entry',
   'Too Tight SL'
 ];
+const GROWTH_AREAS_LOCAL_KEY = 'custom_growth_areas_options';
 
-const ProficiencyGrowthAreasCell: React.FC<ProficiencyGrowthAreasCellProps> = React.memo(({ value, onSave }) => {
+const ProficiencyGrowthAreasCell: React.FC<ProficiencyGrowthAreasCellProps> = React.memo(function ProficiencyGrowthAreasCell({ value, onSave }) {
+  const [options, setOptions] = React.useState<string[]>([...PROFICIENCY_GROWTH_AREAS]);
+  React.useEffect(() => {
+    const stored = localStorage.getItem(GROWTH_AREAS_LOCAL_KEY);
+    if (stored) {
+      try {
+        const arr = JSON.parse(stored);
+        if (Array.isArray(arr)) setOptions([...PROFICIENCY_GROWTH_AREAS, ...arr.filter(o => !PROFICIENCY_GROWTH_AREAS.includes(o))]);
+      } catch {}
+    }
+  }, []);
+
+  const handleSelect = (selected: string) => {
+    if (selected === '__add_new__') {
+      const newValue = window.prompt('Enter new growth area:');
+      if (newValue && !options.some(o => o.toLowerCase() === newValue.toLowerCase())) {
+        const newOptions = [...options, newValue];
+        setOptions(newOptions);
+        localStorage.setItem(GROWTH_AREAS_LOCAL_KEY, JSON.stringify(newOptions.filter(o => !PROFICIENCY_GROWTH_AREAS.includes(o))));
+        onSave(newValue);
+      } else if (newValue) {
+        onSave(newValue);
+      }
+    } else {
+      onSave(selected);
+    }
+  };
+
   return (
     <Dropdown>
       <DropdownTrigger>
-        <Button
-          size="sm"
-          variant="flat"
-          color="default"
-          className="min-w-[180px] h-7 justify-between"
+        <Button size="sm" variant="flat" color="default" className="min-w-[180px] h-7 justify-between"
           endContent={<Icon icon="lucide:chevron-down" className="w-3.5 h-3.5" />}
         >
           {value || <span className="text-default-400">Select Growth Area</span>}
@@ -1863,17 +2067,19 @@ const ProficiencyGrowthAreasCell: React.FC<ProficiencyGrowthAreasCellProps> = Re
         selectedKeys={value ? [value] : []}
         onSelectionChange={(keys) => {
           const selected = Array.from(keys)[0] as string;
-          if (selected) {
-            onSave(selected);
-          }
+          handleSelect(selected);
         }}
-        className="max-h-[300px] overflow-y-auto"
+        // className="max-h-[300px] overflow-y-auto" // removed to disable scroller
       >
-        {PROFICIENCY_GROWTH_AREAS.map((area) => (
-          <DropdownItem key={area}>
-            {area}
-          </DropdownItem>
-        ))}
+        {options
+          .map((area) => <DropdownItem key={area}>{area}</DropdownItem>)
+          .concat([
+            <DropdownItem key="__add_new__" className="text-primary">
+              <span className="flex items-center gap-1">
+                <Icon icon="lucide:plus" className="w-4 h-4" /> Add new growth area...
+              </span>
+            </DropdownItem>
+          ])}
       </DropdownMenu>
     </Dropdown>
   );
@@ -1988,11 +2194,16 @@ const NameCell: React.FC<NameCellProps> = React.memo(({ value, onSave }) => {
           if (confirmed) {
             onSave(closestMatch);
           } else {
-            setEditValue(value); // Revert to previous value if user declines
+            // Revert to previous value if user declines suggestion
+             setEditValue(value); 
           }
         } else {
-          window.alert(`"${finalValue}" is not a valid stock name.`);
-          setEditValue(value); // Revert to previous value
+           const addNew = window.confirm(`"${finalValue}" is not a valid stock name. Do you want to add it?`);
+           if(addNew){
+            onSave(finalValue.toUpperCase());
+           } else {
+            setEditValue(value); // Revert to previous value
+           }
         }
       }
     }
@@ -2114,46 +2325,6 @@ interface SetupCellProps {
   onSave: (value: string) => void;
 }
 
-const SetupCell: React.FC<SetupCellProps> = React.memo(({ value, onSave }) => {
-  return (
-    <Dropdown>
-      <DropdownTrigger>
-        <Button
-          size="sm"
-          variant="flat"
-          color="primary"
-          className="min-w-[120px] h-7 justify-between"
-          endContent={<Icon icon="lucide:chevron-down" className="w-3.5 h-3.5" />}
-        >
-          {value || <span className="text-default-400">Setup</span>}
-        </Button>
-      </DropdownTrigger>
-      <DropdownMenu
-        aria-label="Setup type selection"
-        selectionMode="single"
-        selectedKeys={value ? [value] : []}
-        onSelectionChange={(keys) => {
-          const selected = Array.from(keys)[0] as string;
-          if (selected) {
-            onSave(selected);
-          }
-        }}
-      >
-        {SETUP_OPTIONS.map((option) => (
-          <DropdownItem key={option}>
-            {option}
-          </DropdownItem>
-        ))}
-      </DropdownMenu>
-    </Dropdown>
-  );
-});
-
-interface ExitTriggerCellProps {
-  value: string;
-  onSave: (value: string) => void;
-}
-
 const SETUP_OPTIONS = [
   'ITB',
   'Chop BO',
@@ -2174,6 +2345,73 @@ const SETUP_OPTIONS = [
   'Flag',
   'Other'
 ];
+const SETUP_LOCAL_KEY = 'custom_setup_options';
+
+const SetupCell: React.FC<SetupCellProps> = React.memo(({ value, onSave }) => {
+  const [options, setOptions] = React.useState<string[]>([...SETUP_OPTIONS]);
+
+  React.useEffect(() => {
+    const stored = localStorage.getItem(SETUP_LOCAL_KEY);
+    if (stored) {
+      try {
+        const arr = JSON.parse(stored);
+        if (Array.isArray(arr)) setOptions([...SETUP_OPTIONS, ...arr.filter(o => !SETUP_OPTIONS.includes(o))]);
+      } catch {}
+    }
+  }, []);
+
+  const handleSelect = (selected: string) => {
+    if (selected === '__add_new__') {
+      const newValue = window.prompt('Enter new setup name:');
+      if (newValue && !options.some(o => o.toLowerCase() === newValue.toLowerCase())) {
+        const newOptions = [...options, newValue];
+        setOptions(newOptions);
+        localStorage.setItem(SETUP_LOCAL_KEY, JSON.stringify(newOptions.filter(o => !SETUP_OPTIONS.includes(o))));
+        onSave(newValue);
+      } else if (newValue) {
+        onSave(newValue); // If already exists, just select it
+      }
+    } else {
+      onSave(selected);
+    }
+  };
+
+  return (
+    <Dropdown>
+      <DropdownTrigger>
+        <Button size="sm" variant="flat" color="primary" className="min-w-[120px] h-7 justify-between"
+          endContent={<Icon icon="lucide:chevron-down" className="w-3.5 h-3.5" />}
+        >
+          {value || <span className="text-default-400">Setup</span>}
+        </Button>
+      </DropdownTrigger>
+      <DropdownMenu
+        aria-label="Setup type selection"
+        selectionMode="single"
+        selectedKeys={value ? [value] : []}
+        onSelectionChange={(keys) => {
+          const selected = Array.from(keys)[0] as string;
+          handleSelect(selected);
+        }}
+      >
+        {options
+          .map((option) => <DropdownItem key={option}>{option}</DropdownItem>)
+          .concat([
+            <DropdownItem key="__add_new__" className="text-primary">
+              <span className="flex items-center gap-1">
+                <Icon icon="lucide:plus" className="w-4 h-4" /> Add new setup...
+              </span>
+            </DropdownItem>
+          ])}
+      </DropdownMenu>
+    </Dropdown>
+  );
+});
+
+interface ExitTriggerCellProps {
+  value: string;
+  onSave: (value: string) => void;
+}
 
 const EXIT_TRIGGER_OPTIONS = [
   'Breakeven exit',
@@ -2183,21 +2421,46 @@ const EXIT_TRIGGER_OPTIONS = [
   'SL',
   'Target',
   'Trailing SL exit',
-  'Broke key MA\'s',
+  "Broke key MA's",
   'Panic sell',
   'Early sell off',
   'Failed BO'
 ];
+const EXIT_TRIGGER_LOCAL_KEY = 'custom_exit_trigger_options';
 
 const ExitTriggerCell: React.FC<ExitTriggerCellProps> = React.memo(({ value, onSave }) => {
+  const [options, setOptions] = React.useState<string[]>([...EXIT_TRIGGER_OPTIONS]);
+
+  React.useEffect(() => {
+    const stored = localStorage.getItem(EXIT_TRIGGER_LOCAL_KEY);
+    if (stored) {
+      try {
+        const arr = JSON.parse(stored);
+        if (Array.isArray(arr)) setOptions([...EXIT_TRIGGER_OPTIONS, ...arr.filter(o => !EXIT_TRIGGER_OPTIONS.includes(o))]);
+      } catch {}
+    }
+  }, []);
+
+  const handleSelect = (selected: string) => {
+    if (selected === '__add_new__') {
+      const newValue = window.prompt('Enter new exit trigger:');
+      if (newValue && !options.some(o => o.toLowerCase() === newValue.toLowerCase())) {
+        const newOptions = [...options, newValue];
+        setOptions(newOptions);
+        localStorage.setItem(EXIT_TRIGGER_LOCAL_KEY, JSON.stringify(newOptions.filter(o => !EXIT_TRIGGER_OPTIONS.includes(o))));
+        onSave(newValue);
+      } else if (newValue) {
+        onSave(newValue);
+      }
+    } else {
+      onSave(selected);
+    }
+  };
+
   return (
     <Dropdown>
       <DropdownTrigger>
-        <Button
-          size="sm"
-          variant="flat"
-          color="default"
-          className="min-w-[150px] h-7 justify-between"
+        <Button size="sm" variant="flat" color="default" className="min-w-[150px] h-7 justify-between"
           endContent={<Icon icon="lucide:chevron-down" className="w-3.5 h-3.5" />}
         >
           {value || <span className="text-default-400">Select Exit Trigger</span>}
@@ -2209,16 +2472,18 @@ const ExitTriggerCell: React.FC<ExitTriggerCellProps> = React.memo(({ value, onS
         selectedKeys={value ? [value] : []}
         onSelectionChange={(keys) => {
           const selected = Array.from(keys)[0] as string;
-          if (selected) {
-            onSave(selected);
-          }
+          handleSelect(selected);
         }}
       >
-        {EXIT_TRIGGER_OPTIONS.map((option) => (
-          <DropdownItem key={option}>
-            {option}
-          </DropdownItem>
-        ))}
+        {options
+          .map((option) => <DropdownItem key={option}>{option}</DropdownItem>)
+          .concat([
+            <DropdownItem key="__add_new__" className="text-primary">
+              <span className="flex items-center gap-1">
+                <Icon icon="lucide:plus" className="w-4 h-4" /> Add new exit trigger...
+              </span>
+            </DropdownItem>
+          ])}
       </DropdownMenu>
     </Dropdown>
   );
@@ -2259,6 +2524,74 @@ const PlanFollowedCell: React.FC<PlanFollowedCellProps> = ({ value, onSave }) =>
     </Dropdown>
   );
 };
+
+interface NotesCellProps {
+  value: string;
+  onSave: (value: string) => void;
+}
+
+const NotesCell: React.FC<NotesCellProps> = React.memo(({ value, onSave }) => {
+  const {isOpen, onOpenChange, onClose, onOpen} = useDisclosure();
+  const [editValue, setEditValue] = React.useState(value);
+
+  // When opening the popover, ensure the edit value is up-to-date with the cell's value
+  React.useEffect(() => {
+    if (isOpen) {
+      setEditValue(value);
+    }
+  }, [isOpen, value]);
+
+  const handleSave = () => {
+    onSave(editValue);
+    onClose();
+  };
+  
+  const handleCancel = () => {
+    setEditValue(value); // Reset any changes
+    onClose();
+  };
+
+  return (
+    <Popover placement="bottom-start" isOpen={isOpen} onOpenChange={onOpenChange}>
+      <PopoverTrigger>
+        <div 
+          onClick={onOpen}
+          className="p-2 text-sm rounded-md cursor-pointer hover:bg-default-100 dark:hover:bg-default-900/40 transition-colors w-full max-w-[300px]"
+        >
+          {value ? (
+            <p className="whitespace-pre-wrap truncate text-ellipsis">{value}</p>
+          ) : (
+            <span className="text-default-500">Add a note...</span>
+          )}
+        </div>
+      </PopoverTrigger>
+      <PopoverContent className="p-0">
+        <div className="w-[320px] p-4">
+          <h4 className="font-bold text-lg mb-3">Trade Review & Notes</h4>
+          <Textarea
+            label="Notes"
+            placeholder="Enter your review, observations, or thoughts..."
+            value={editValue}
+            onValueChange={setEditValue}
+            minRows={6}
+            maxRows={12}
+            classNames={{
+              input: "resize-y"
+            }}
+          />
+          <div className="flex justify-end gap-2 mt-4">
+            <Button size="sm" variant="flat" color="danger" onPress={handleCancel}>
+              Cancel
+            </Button>
+            <Button size="sm" color="primary" onPress={handleSave}>
+              Save
+            </Button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+});
 
 // Utility to calculate open heat for a single trade
 function calcTradeOpenHeat(trade, defaultPortfolioSize, getPortfolioSize) {

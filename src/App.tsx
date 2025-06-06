@@ -38,6 +38,14 @@ export default function App() {
   const mainContentRef = useRef<HTMLElement>(null);
   const [isMainContentFullscreen, setIsMainContentFullscreen] = useState(false);
 
+  const getDefaultUserName = () => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('userName') || 'Aniket Mahato';
+    }
+    return 'Aniket Mahato';
+  };
+  const [userName, setUserName] = React.useState(getDefaultUserName);
+
   React.useEffect(() => {
     localStorage.setItem('isMobileMenuOpen', JSON.stringify(isMobileMenuOpen));
   }, [isMobileMenuOpen]);
@@ -45,6 +53,10 @@ export default function App() {
   React.useEffect(() => {
     localStorage.setItem('isProfileOpen', JSON.stringify(isProfileOpen));
   }, [isProfileOpen]);
+
+  React.useEffect(() => {
+    localStorage.setItem('userName', userName);
+  }, [userName]);
 
   const handleToggleMainContentFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -76,17 +88,17 @@ export default function App() {
       <GlobalFilterProvider>
         <div className="min-h-screen bg-background font-sans antialiased">
           {/* Navigation */}
-          <header className="sticky top-0 z-40 w-full border-b border-divider bg-background/80 backdrop-blur-xl">
+          <header className="sticky top-0 z-40 w-full border-b border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl backdrop-saturate-150">
             <nav className="px-4 sm:px-6">
               <div className="flex h-16 items-center justify-between">
                 {/* Logo and Mobile Menu Button */}
                 <div className="flex items-center gap-4">
                   <Link 
                     to="/" 
-                    className="flex items-center gap-2 font-semibold tracking-tight hover:opacity-90 transition-opacity"
+                    className="flex items-center gap-2 font-semibold tracking-tight text-gray-900 dark:text-white hover:opacity-90 transition-opacity"
                   >
-                    <TradeTrackerLogo className="h-5 w-5" />
-                    <AnimatedBrandName />
+                    <TradeTrackerLogo className="h-5 w-5 text-gray-900 dark:text-white" />
+                    <AnimatedBrandName className="text-gray-900 dark:text-white" />
                   </Link>
                   <Button
                     isIconOnly
@@ -109,8 +121,8 @@ export default function App() {
                         to={item.path}
                         className={`flex items-center gap-2.5 px-3 py-2 text-sm font-medium transition-colors rounded-lg
                           ${isActive 
-                            ? 'text-primary bg-primary/10' 
-                            : 'text-foreground/70 hover:text-foreground hover:bg-content2/40'
+                            ? 'text-primary-600 dark:text-primary-400 bg-primary-100 dark:bg-primary-900/30 backdrop-blur-md shadow-md' 
+                            : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/50 backdrop-blur-sm transition-all duration-300'
                           }`}
                       >
                         <Icon icon={item.icon} className="h-4 w-4" />
@@ -127,10 +139,10 @@ export default function App() {
                     variant="flat"
                     size="sm"
                     onPress={() => setIsProfileOpen(true)}
-                    className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-md border border-primary-200 bg-background/60 hover:bg-background/80 min-h-0 min-w-0"
+                    className="hidden sm:flex items-center gap-1 px-3 py-1.5 rounded-full border border-white/20 bg-white/10 backdrop-blur-md hover:bg-white/20 transition-all duration-300 min-h-0 min-w-0 shadow-sm"
                     startContent={<Icon icon="lucide:user" className="h-4 w-4" />}
                   >
-                    <span className="font-medium text-sm leading-none">Aniket Mahato</span>
+                    <span className="font-medium text-sm leading-none">{userName}</span>
                   </Button>
                 </div>
               </div>
@@ -146,7 +158,7 @@ export default function App() {
                   transition={{ duration: 0.2 }}
                   className="sm:hidden border-t border-divider overflow-hidden"
                 >
-                  <div className="space-y-1 px-4 py-3">
+                  <div className="space-y-1 px-4 py-3 bg-background/30 backdrop-blur-xl">
                     {navItems.map((item) => {
                       const isActive = location.pathname === item.path;
                       return (
@@ -155,8 +167,8 @@ export default function App() {
                           to={item.path}
                           className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors
                             ${isActive 
-                              ? 'text-primary bg-primary/10' 
-                              : 'text-foreground/70 hover:text-foreground hover:bg-content2/40'
+                              ? 'text-primary bg-white/20 backdrop-blur-md shadow-md' 
+                              : 'text-foreground/80 hover:text-foreground hover:bg-white/10 backdrop-blur-sm hover:backdrop-blur transition-all duration-300'
                             }`}
                           onClick={() => setIsMobileMenuOpen(false)}
                         >
@@ -176,8 +188,7 @@ export default function App() {
                       startContent={<Icon icon="lucide:user" className="h-4 w-4" />}
                     >
                       <div className="flex flex-col items-start">
-                        <span className="font-medium">John Trader</span>
-                        <span className="text-xs text-foreground/60">Pro Account</span>
+                        <span className="font-medium">{userName}</span>
                       </div>
                     </Button>
                   </div>
@@ -190,7 +201,7 @@ export default function App() {
           <GlobalFilterBar />
 
           {/* Main Content */}
-          <main ref={mainContentRef} className={`flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full ${isMainContentFullscreen ? 'overflow-auto' : ''}`}>
+          <main ref={mainContentRef} className={`flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full ${isMainContentFullscreen ? 'overflow-auto' : ''} bg-gradient-to-br from-background/50 to-background/30`}>
             <AnimatePresence mode="wait">
               <motion.div
                 key={location.pathname}
@@ -225,7 +236,12 @@ export default function App() {
             </AnimatePresence>
           </main>
 
-          <ProfileSettingsModal isOpen={isProfileOpen} onOpenChange={setIsProfileOpen} />
+          <ProfileSettingsModal
+            isOpen={isProfileOpen}
+            onOpenChange={setIsProfileOpen}
+            userName={userName}
+            setUserName={setUserName}
+          />
         </div>
       </GlobalFilterProvider>
     </PortfolioProvider>

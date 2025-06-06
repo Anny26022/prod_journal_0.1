@@ -5,6 +5,10 @@ import { usePortfolio } from '../utils/PortfolioContext';
 import { Icon } from '@iconify/react';
 import { motion } from "framer-motion"; // Import motion for StatsCard animation
 import SetupFrequencyChart from '../components/analytics/SetupFrequencyChart'; // Import the new chart component
+import { loadIndustrySectorMapping, getIndustrySectorByName } from '../utils/industrySectorMap';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell } from 'recharts';
+import IndustryDistributionChart from '../components/analytics/IndustryDistributionChart';
+import { Accordion, AccordionItem } from "@heroui/react";
 
 // Assuming Trade type is available from useTrades or a common types file
 // import { Trade } from '../types/trade'; 
@@ -26,6 +30,129 @@ interface Trade {
 const DeepAnalyticsPage: React.FC = () => { // Renamed component
     const { trades, isLoading } = useTrades();
     const { portfolioSize } = usePortfolio();
+    const [mappingLoaded, setMappingLoaded] = React.useState(false);
+
+    // Load industry/sector mapping on mount
+    React.useEffect(() => {
+        loadIndustrySectorMapping().then(() => setMappingLoaded(true));
+    }, []);
+
+    // Augment trades with industry/sector
+    const tradesWithIndustry = useMemo(() => {
+        if (!mappingLoaded) return [];
+        return trades.map(trade => {
+            const info = getIndustrySectorByName(trade.name);
+            return {
+                ...trade,
+                industry: info?.industry || 'Unknown',
+                sector: info?.sector || 'Unknown',
+            };
+        });
+    }, [trades, mappingLoaded]);
+
+    // Group trades by industry and sector to get stock names for tooltips
+    const tradesByIndustry = useMemo(() => {
+        if (!tradesWithIndustry.length) return {};
+        return tradesWithIndustry.reduce((acc, trade) => {
+            const key = trade.industry;
+            if (!acc[key]) acc[key] = [];
+            acc[key].push(trade);
+            return acc;
+        }, {} as Record<string, typeof tradesWithIndustry>);
+    }, [tradesWithIndustry]);
+
+    const industryChartData = useMemo(() => {
+        return Object.entries(tradesByIndustry)
+            .map(([name, trades]) => ({
+                name,
+                trades: trades.length,
+                stockNames: [...new Set(trades.map(t => t.name))]
+            }))
+            .sort((a, b) => b.trades - a.trades);
+    }, [tradesByIndustry]);
+
+    const tradesBySector = useMemo(() => {
+        if (!tradesWithIndustry.length) return {};
+        return tradesWithIndustry.reduce((acc, trade) => {
+            const key = trade.sector;
+            if (!acc[key]) acc[key] = [];
+            acc[key].push(trade);
+            return acc;
+        }, {} as Record<string, typeof tradesWithIndustry>);
+    }, [tradesWithIndustry]);
+
+    const sectorChartData = useMemo(() => {
+        return Object.entries(tradesBySector)
+            .map(([name, trades]) => ({
+                name,
+                trades: trades.length,
+                stockNames: [...new Set(trades.map(t => t.name))]
+            }))
+            .sort((a, b) => b.trades - a.trades);
+    }, [tradesBySector]);
+
+    const industryStats = useMemo(() => {
+        if (industryChartData.length === 0) {
+            return { most: 'N/A', least: 'N/A', mostStocks: [], leastStocks: [] };
+        }
+        const most = industryChartData[0];
+        const least = industryChartData[industryChartData.length - 1];
+        return {
+            most: most.name,
+            least: least.name,
+            mostStocks: most.stockNames || [],
+            leastStocks: least.stockNames || []
+        };
+    }, [industryChartData]);
+
+    const sectorStats = useMemo(() => {
+        if (sectorChartData.length === 0) {
+            return { most: 'N/A', least: 'N/A', mostStocks: [], leastStocks: [] };
+        }
+        const most = sectorChartData[0];
+        const least = sectorChartData[sectorChartData.length - 1];
+        return {
+            most: most.name,
+            least: least.name,
+            mostStocks: most.stockNames || [],
+            leastStocks: least.stockNames || []
+        };
+    }, [sectorChartData]);
+
+    const setupPerformance = useMemo(() => {
+        const tradesWithSetup = trades.filter(t => t.setup && t.setup.trim() !== '');
+
+        if (tradesWithSetup.length === 0) {
+            return [];
+        }
+
+        const tradesBySetup = tradesWithSetup.reduce((acc, trade) => {
+            const key = trade.setup!;
+            if (!acc[key]) {
+                acc[key] = [];
+            }
+            acc[key].push(trade);
+            return acc;
+        }, {} as Record<string, typeof tradesWithSetup>);
+
+        const setupStats = Object.entries(tradesBySetup).map(([setupName, setupTrades]) => {
+            const totalTrades = setupTrades.length;
+            const winningTrades = setupTrades.filter(t => t.plRs > 0).length;
+            const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
+            const totalPfImpact = setupTrades.reduce((sum, trade) => sum + trade.pfImpact, 0);
+            
+        return {
+                id: setupName,
+                name: setupName,
+                totalTrades,
+                winRate,
+                totalPfImpact,
+            };
+        });
+
+        // Sort by total PF impact to show most impactful setups first
+        return setupStats.sort((a, b) => b.totalPfImpact - a.totalPfImpact);
+    }, [trades]);
 
     // --- Calculations for Deep Analytics --- //
     const analytics = useMemo(() => {
@@ -140,6 +267,10 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
     }, [trades]);
     // --- End Calculations ---
 
+    // Define color palettes for the charts
+    const industryColors = ['#4A8DFF', '#34D399', '#FF6B6B', '#FFC107', '#A78BFA', '#64748B'];
+    const sectorColors = ['#56B4E9', '#009E73', '#F0E442', '#E69F00', '#D55E00', '#CC79A7'];
+
     // Calculate and sort top allocations
     const topAllocations = useMemo(() => {
         if (!trades || trades.length === 0 || !portfolioSize || portfolioSize <= 0) {
@@ -204,164 +335,205 @@ const DeepAnalyticsPage: React.FC = () => { // Renamed component
         }
     };
 
+    // Custom Tooltip for Charts
+    const CustomTooltip = ({ active, payload, label }: any) => {
+        if (active && payload && payload.length) {
+            return (
+                <div className="p-2.5 bg-background border border-divider shadow-lg rounded-lg bg-white dark:bg-gray-900">
+                    <p className="text-sm font-bold text-gray-800 dark:text-gray-100">{label}</p>
+                    <p className="text-xs text-gray-600 dark:text-gray-400">Trades: {payload[0].value}</p>
+                </div>
+            );
+        }
+        return null;
+    };
 
     return (
-        <div className="p-6 space-y-6">
+        <motion.div 
+            className="p-4 sm:p-6 space-y-6"
+            initial="hidden"
+            animate="visible"
+            variants={{
+                hidden: { opacity: 0 },
+                visible: {
+                    opacity: 1,
+                    transition: {
+                        staggerChildren: 0.1
+                    }
+                }
+            }}
+        >
+            <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}>
+                <Card>
+                    <CardHeader>
+                        <h2 className="text-xl font-bold text-default-700 flex items-center gap-2">
+                            <Icon icon="lucide:gauge-circle" className="text-primary" />
+                            Key Performance Metrics
+                        </h2>
+                    </CardHeader>
+                    <Divider />
+                    <CardBody>
+                        {!isLoading && (
+                             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                                 <StatsCard title="Expectancy (%)" value={<div className="flex items-center gap-1">{analytics.expectancy.toFixed(2)}%<Tooltip content={`Avg Win PF Impact: ${analytics.avgWinPfImpact.toFixed(2)}%\nAvg Loss PF Impact: ${analytics.avgLossPfImpact.toFixed(2)}%`} placement="top" radius="sm" shadow="md" classNames={{ content: "bg-content1 border border-divider z-50 max-w-xs text-xs" }}><Icon icon="lucide:info" className="text-base text-foreground-400 cursor-help" /></Tooltip></div>} icon="lucide:trending-up" color={analytics.expectancy >= 0 ? "success" : "danger"}/>
+                                 <StatsCard title="Profit Factor" value={<div className="flex items-center gap-1">{isFinite(analytics.profitFactor) ? analytics.profitFactor.toFixed(2) : "∞"}<Tooltip content={`Total Positive PF Impact: ${analytics.totalPositivePfImpact.toFixed(2)}%\nTotal Negative PF Impact: ${-analytics.totalAbsoluteNegativePfImpact.toFixed(2)}%`} placement="top" radius="sm" shadow="md" classNames={{ content: "bg-content1 border border-divider z-50 max-w-xs text-xs" }}><Icon icon="lucide:info" className="text-base text-foreground-400 cursor-help" /></Tooltip></div>} icon="lucide:line-chart" color={analytics.profitFactor >= 1 ? "success" : "danger"}/>
+                                 <StatsCard title="Avg Win Hold" value={`${analytics.avgWinHold} Day${analytics.avgWinHold !== 1 ? 's' : ''}`} icon="lucide:clock" color="success"/>
+                                 <StatsCard title="Avg Loss Hold" value={`${analytics.avgLossHold} Day${analytics.avgLossHold !== 1 ? 's' : ''}`} icon="lucide:clock" color="danger"/>
+                                 <StatsCard title="Avg Win (₹)" value={formatCurrency(analytics.avgWin)} icon="lucide:trending-up" color="success"/>
+                                 <StatsCard title="Avg Loss (₹)" value={formatCurrency(-analytics.avgLoss)} icon="lucide:trending-down" color="danger"/>
+                                 <StatsCard title="Win Streak" value={analytics.winStreak.toString()} icon="lucide:medal" color="primary"/>
+                                 <StatsCard title="Loss Streak" value={analytics.lossStreak.toString()} icon="lucide:alert-triangle" color="danger"/>
+                                 <StatsCard title="Top Win (₹)" value={formatCurrency(analytics.topWin)} icon="lucide:star" color="success"/>
+                                 <StatsCard title="Top Loss (₹)" value={formatCurrency(analytics.topLoss)} icon="lucide:skull" color="danger"/>
+                            </div>
+                        )}
+                    </CardBody>
+                </Card>
+            </motion.div>
 
-            {/* Display Stats Cards with calculated values */}
-            {!isLoading && (
-                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-center">
-                 <StatsCard 
-                    title="Expectancy (%)" // Updated title
-                    value={
-                        <div className="flex items-center gap-1">
-                            {analytics.expectancy.toFixed(2)}%
-                             <Tooltip 
-                                content={`Calculated as: (Average Win PF Impact % * Win Rate) - (Average Loss PF Impact % * Loss Rate)\n\nAvg Win PF Impact: ${analytics.avgWinPfImpact.toFixed(2)}%\nAvg Loss PF Impact: ${analytics.avgLossPfImpact.toFixed(2)}%`}
-                                placement="top" 
-                                radius="sm" 
-                                shadow="md"
-                                classNames={{ content: "bg-content1 border border-divider z-50 max-w-xs text-xs" }}
-                            >
-                                <Icon icon="lucide:info" className="text-base text-foreground-400 cursor-help" />
+            <Accordion selectionMode="multiple" defaultExpandedKeys={["1"]} variant="bordered">
+                <AccordionItem key="1" aria-label="Industry & Sector Analysis" title={
+                    <h2 className="text-lg font-semibold text-default-700 flex items-center gap-2">
+                        <Icon icon="lucide:factory" className="text-secondary" />
+                        Industry & Sector Analysis
+                    </h2>
+                }>
+                    <div className="space-y-4 p-2">
+                        {mappingLoaded && tradesWithIndustry.length > 0 && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <Tooltip content={<p className="text-xs break-words p-1">{industryStats.mostStocks.join(', ')}</p>} placement="top" radius="sm" shadow="md" classNames={{ content: "bg-content1 border border-divider" }}>
+                                    <div><StatsCard title="Most Traded Industry" value={industryStats.most} icon="lucide:trending-up" color="primary" /></div>
+                                </Tooltip>
+                                <Tooltip content={<p className="text-xs break-words p-1">{industryStats.leastStocks.join(', ')}</p>} placement="top" radius="sm" shadow="md" classNames={{ content: "bg-content1 border border-divider" }}>
+                                    <div><StatsCard title="Least Traded Industry" value={industryStats.least} icon="lucide:trending-down" color="warning" /></div>
+                                </Tooltip>
+                                <Tooltip content={<p className="text-xs break-words p-1">{sectorStats.mostStocks.join(', ')}</p>} placement="top" radius="sm" shadow="md" classNames={{ content: "bg-content1 border border-divider" }}>
+                                    <div><StatsCard title="Most Traded Sector" value={sectorStats.most} icon="lucide:trending-up" color="primary" /></div>
+                                </Tooltip>
+                                <Tooltip content={<p className="text-xs break-words p-1">{sectorStats.leastStocks.join(', ')}</p>} placement="top" radius="sm" shadow="md" classNames={{ content: "bg-content1 border border-divider" }}>
+                                    <div><StatsCard title="Least Traded Sector" value={sectorStats.least} icon="lucide:trending-down" color="warning" /></div>
                             </Tooltip>
                         </div>
-                    }
-                    icon="lucide:trending-up" 
-                    color={analytics.expectancy >= 0 ? "success" : "danger"}
-                />
-                <StatsCard 
-                    title="Profit Factor" 
-                    value={
-                        <div className="flex items-center gap-1">
-                           {isFinite(analytics.profitFactor) ? analytics.profitFactor.toFixed(2) : (analytics.profitFactor === Infinity ? "∞" : "0.00")}
-                             <Tooltip 
-                                content={`Calculated as: Total Positive PF Impact % / Total Absolute Negative PF Impact %\n\nTotal Positive PF Impact: ${analytics.totalPositivePfImpact.toFixed(2)}%\nTotal Negative PF Impact: ${-analytics.totalAbsoluteNegativePfImpact.toFixed(2)}%`}
-                                placement="top" 
-                                radius="sm" 
-                                shadow="md"
-                                classNames={{ content: "bg-content1 border border-divider z-50 max-w-xs text-xs" }}
-                            >
-                                <Icon icon="lucide:info" className="text-base text-foreground-400 cursor-help" />
-                            </Tooltip>
-                        </div>
-                    }
-                    icon="lucide:line-chart" 
-                    color={analytics.profitFactor >= 1 ? "success" : "danger"}
-                />
-                 <StatsCard 
-                    title="Avg Win Hold" 
-                    value={`${analytics.avgWinHold} Day${analytics.avgWinHold !== 1 ? 's' : ''}`} 
-                    icon="lucide:clock" 
-                    color="success"
-                />
-                 <StatsCard 
-                    title="Avg Loss Hold" 
-                    value={`${analytics.avgLossHold} Day${analytics.avgLossHold !== 1 ? 's' : ''}`} 
-                    icon="lucide:clock" 
-                    color="danger"
-                />
-                 <StatsCard 
-                    title="Avg Win (₹)" 
-                    value={formatCurrency(analytics.avgWin)} 
-                    icon="lucide:trending-up" 
-                    color="success"
-                />
-                 <StatsCard 
-                    title="Avg Loss (₹)" 
-                    value={formatCurrency(-analytics.avgLoss)} // Display as negative for loss
-                    icon="lucide:trending-down" 
-                    color="danger"
-                />
-                 <StatsCard 
-                    title="Win Streak" 
-                    value={analytics.winStreak.toString()} 
-                    icon="lucide:medal" 
-                    color="primary"
-                />
-                 <StatsCard 
-                    title="Loss Streak" 
-                    value={analytics.lossStreak.toString()} 
-                    icon="lucide:alert-triangle" 
-                    color="danger"
-                />
-                 <StatsCard 
-                    title="Top Win (₹)" 
-                    value={formatCurrency(analytics.topWin)} 
-                    icon="lucide:star" 
-                    color="success"
-                />
-                 <StatsCard 
-                    title="Top Loss (₹)" 
-                    value={formatCurrency(analytics.topLoss)} // Already negative
-                    icon="lucide:skull" 
-                    color="danger"
-                />
+                        )}
+                        {mappingLoaded && tradesWithIndustry.length > 0 && (
+                            <div className="space-y-6">
+                                {industryChartData.length > 0 && <IndustryDistributionChart data={industryChartData} colors={industryColors} title="Industry" />}
+                                {sectorChartData.length > 0 && <IndustryDistributionChart data={sectorChartData} colors={sectorColors} title="Sector" />}
             </div>
             )}
+                    </div>
+                </AccordionItem>
 
-            {/* Add Setup Frequency Chart */}
-            {!isLoading && trades.length > 0 && (
-                 <SetupFrequencyChart trades={trades} />
-            )}
+                <AccordionItem key="2" aria-label="Setup Performance Analysis" title={
+                     <h2 className="text-lg font-semibold text-default-700 flex items-center gap-2">
+                        <Icon icon="lucide:settings-2" className="text-success" />
+                        Setup Performance Analysis
+                    </h2>
+                }>
+                     <div className="p-2 space-y-6">
+                         {setupPerformance.length > 0 && (
+                            <Card className="border-divider">
+                                <CardHeader>
+                                    <div className="flex flex-col">
+                                        <p className="text-md font-semibold">Performance by Setup</p>
+                                        <p className="text-sm text-default-500">Which setups generate the most portfolio impact.</p>
+                                    </div>
+                                </CardHeader>
+                                <Divider/>
+                                <CardBody className="p-0">
+                                    <Table 
+                                        aria-label="Setup Performance Table"
+                                        classNames={{
+                                            th: "bg-transparent border-b border-divider text-xs font-medium text-default-500 uppercase tracking-wider text-right",
+                                            td: "py-2.5 text-sm text-right",
+                                            wrapper: "p-0"
+                                        }}
+                                    >
+                                        <TableHeader>
+                                            <TableColumn className="text-left">Setup</TableColumn>
+                                            <TableColumn>Trades</TableColumn>
+                                            <TableColumn>Win Rate</TableColumn>
+                                            <TableColumn>Total PF Impact</TableColumn>
+                                        </TableHeader>
+                                        <TableBody 
+                                            items={setupPerformance}
+                                            emptyContent={"No setup data to display."}
+                                        >
+                                            {(item) => (
+                                                <TableRow key={item.id}>
+                                                    <TableCell className="text-left font-medium">{item.name}</TableCell>
+                                                    <TableCell>{item.totalTrades}</TableCell>
+                                                    <TableCell className={`font-semibold ${item.winRate >= 50 ? 'text-success-600' : 'text-danger-600'}`}>{item.winRate.toFixed(1)}%</TableCell>
+                                                    <TableCell className={`font-semibold ${item.totalPfImpact >= 0 ? 'text-success-600' : 'text-danger-600'}`}>{item.totalPfImpact > 0 ? '+' : ''}{item.totalPfImpact.toFixed(2)}%</TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </CardBody>
+                            </Card>
+                         )}
 
+                        {!isLoading && trades.filter(t=>t.setup).length > 0 && (
+                            <Card className="border-divider">
+                                <CardHeader>
+                                     <div className="flex flex-col">
+                                        <p className="text-md font-semibold">Setup Frequency</p>
+                                        <p className="text-sm text-default-500">How often each setup is traded.</p>
+                                    </div>
+                                </CardHeader>
+                                <Divider/>
+                                <SetupFrequencyChart trades={trades} />
+                            </Card>
+                        )}
+                     </div>
+                </AccordionItem>
+
+                 <AccordionItem key="3" aria-label="Position Analysis" title={
+                     <h2 className="text-lg font-semibold text-default-700 flex items-center gap-2">
+                        <Icon icon="lucide:hand-coins" className="text-warning" />
+                        Position Analysis
+                    </h2>
+                }>
+                    <div className="p-2">
             <Card className="border border-divider">
                 <CardHeader className="flex gap-3 items-center">
                     <Icon icon="lucide:pie-chart" className="text-xl text-primary-500" />
-                    <div className="flex flex-col">
-                        <p className="text-md font-semibold">Deep Analytics: Top Allocations</p> {/* Updated title for clarity */}
-                        <p className="text-sm text-default-500">Largest open/partial positions by portfolio percentage.</p>
+                            <div>
+                                <p className="text-md font-semibold">Top Allocations</p>
+                                <p className="text-sm text-default-500">Largest open positions by portfolio percentage.</p>
                     </div>
                 </CardHeader>
                 <Divider/>
                 <CardBody className="p-0">
-                    <Table
-                         aria-label="Top Allocations Table"
-                         classNames={{
-                            wrapper: "min-h-[222px] p-0",
-                            th: "bg-transparent border-b border-divider text-xs font-medium text-default-500 uppercase tracking-wider",
-                            td: "py-2.5 text-sm",
-                            base: "max-w-full"
-                          }}
-                    >
-                        {/* Corrected TableHeader usage */}
+                            <Table aria-label="Top Allocations Table" classNames={{ wrapper: "min-h-[222px] p-0", th: "bg-transparent border-b border-divider text-xs font-medium", td: "py-2.5 text-sm" }}>
                         <TableHeader columns={columns}>
-                            {(column) => (
-                                <TableColumn key={column.key}>
-                                    {column.label}
-                                </TableColumn>
-                            )}
+                                    {(column) => <TableColumn key={column.key}>{column.label}</TableColumn>}
                         </TableHeader>
-                        <TableBody 
-                            items={topAllocations} 
-                            isLoading={isLoading} 
-                            emptyContent={isLoading ? " " : "No open or partial positions to display."}
-                        >
+                                <TableBody items={topAllocations} isLoading={isLoading} emptyContent={isLoading ? " " : "No open positions."}>
                             {(item) => (
                                 <TableRow key={item.id}>
-                                    {columns.map((column) => (
-                                        <TableCell key={`${item.id}-${column.key}`}>
-                                            {renderCell(item, column.key)}
-                                        </TableCell>
-                                    ))}
+                                            {(columnKey) => <TableCell>{renderCell(item, columnKey as string)}</TableCell>}
                                 </TableRow>
                             )}
                         </TableBody>
                     </Table>
                 </CardBody>
             </Card>
-        </div>
+                </div>
+                </AccordionItem>
+            </Accordion>
+        </motion.div>
     );
 };
 
-interface StatsCardProps { // Added StatsCardProps interface
+interface StatsCardProps {
   title: string;
-  value: React.ReactNode; // Allow ReactNode for value to include icon/tooltip
+  value: React.ReactNode;
   icon: string;
   color: "primary" | "success" | "warning" | "danger";
 }
 
-const StatsCard: React.FC<StatsCardProps> = React.memo(({ title, value, icon, color }) => { // Added StatsCard component
+const StatsCard: React.FC<StatsCardProps> = React.memo(({ title, value, icon, color }) => {
   const getColors = () => {
     switch (color) {
       case "primary":
@@ -401,58 +573,35 @@ const StatsCard: React.FC<StatsCardProps> = React.memo(({ title, value, icon, co
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
       whileHover={{ 
         y: -2,
         transition: { type: "spring", stiffness: 180, damping: 22 }
       }}
       className="will-change-transform"
+      variants={{
+        hidden: { opacity: 0, y: 20 },
+        visible: { opacity: 1, y: 0 }
+    }}
     >
       <Card className="border border-gray-100 dark:border-gray-800 shadow-sm bg-white dark:bg-gray-900">
         <CardBody className="p-6">
-          <motion.div 
-            className="flex justify-between items-start will-change-transform"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-          >
+          <div className="flex justify-between items-start">
             <div className="space-y-2">
-              <motion.p 
-                className="text-gray-500 dark:text-gray-400 text-sm font-medium"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.3 }}
-              >
+              <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">
                 {title}
-              </motion.p>
-              <motion.p 
-                className={`text-2xl font-semibold tracking-tight ${colors.text}`}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.4 }}
-              >
+              </p>
+              <p className={`text-2xl font-semibold tracking-tight ${colors.text}`}>
                 {value} {/* Render ReactNode value */}
-              </motion.p>
+              </p>
             </div>
-            <motion.div 
-              className={`p-3 rounded-xl ${colors.bg} ${colors.icon}`}
-              initial={{ opacity: 0, scale: 0 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{
-                delay: 0.5,
-                type: "spring",
-                stiffness: 400,
-                damping: 10
-              }}
-            >
+            <div className={`p-3 rounded-xl ${colors.bg} ${colors.icon}`}>
               <Icon icon={icon} className="text-xl" />
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
         </CardBody>
       </Card>
     </motion.div>
   );
 });
 
-export default DeepAnalyticsPage; // Exporting the renamed component 
+export default DeepAnalyticsPage; 

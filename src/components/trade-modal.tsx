@@ -720,22 +720,22 @@ import { validateTrade, TradeIssue } from "../utils/tradeValidations";
     <Modal 
       isOpen={isOpen} 
       onOpenChange={onOpenChange}
-      size="4xl"
+      size="2xl"
       scrollBehavior="inside"
       motionProps={modalMotionProps}
       classNames={{
-        base: "transform-gpu",
-        wrapper: "transform-gpu"
+        base: "transform-gpu backdrop-blur-sm",
+        wrapper: "transform-gpu",
+        backdrop: "bg-black/40",
+        closeButton: "text-foreground/60 hover:bg-white/10"
       }}
+      backdrop="blur"
     >
-      <ModalContent>
+      <ModalContent className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-2xl border border-gray-200 dark:border-gray-700 shadow-2xl max-h-[85vh] w-[95vw] max-w-md overflow-hidden">
         {(onClose) => (
           <>
-            <ModalHeader className="flex flex-col gap-1">
-              <div className="flex justify-between items-center">
-                <h3 className="text-lg font-semibold">
-                  {mode === "add" ? "Add New Trade" : "Edit Trade"}
-                </h3>
+            <ModalHeader className="flex flex-col gap-1 border-b border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/80">
+              <div className="flex justify-between items-center w-full">
                 <Tabs 
                   selectedKey={activeTab}
                   onSelectionChange={(key) => setActiveTab(key as string)}
@@ -743,9 +743,9 @@ import { validateTrade, TradeIssue } from "../utils/tradeValidations";
                   color="primary"
                   size="sm"
                   classNames={{
-                    tabList: "bg-content2/50 p-0.5 rounded-lg",
-                    cursor: "bg-primary rounded-md",
-                    tab: "px-3 py-1 data-[selected=true]:text-white"
+                    tabList: "bg-transparent p-0.5 rounded-xl",
+                    cursor: "bg-gray-200 dark:bg-gray-600 rounded-lg shadow-sm",
+                    tab: "px-4 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 data-[selected=true]:text-gray-900 dark:data-[selected=true]:text-white data-[hover=true]:bg-gray-100/80 dark:data-[hover=true]:bg-gray-700/50 rounded-lg transition-all duration-200"
                   }}
                 >
                   <Tab key="basic" title="Basic" />
@@ -754,20 +754,20 @@ import { validateTrade, TradeIssue } from "../utils/tradeValidations";
               </div>
             </ModalHeader>
             <Divider />
-            <ModalBody>
+            <ModalBody className="px-2 py-2 overflow-y-auto overflow-x-hidden overscroll-contain will-change-transform touch-auto">
               {/* Summary Card Section: Show key calculated metrics at the top */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                <div className="p-3 rounded-md bg-default-100 border border-default-200">
-                  <div className="text-xs text-foreground-400 mb-1">Avg. Entry (₹)</div>
-                  <div className="font-semibold">{formData.avgEntry?.toFixed(2) ?? '0.00'}</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4 transform-gpu">
+                <div className="p-2 rounded-lg bg-white/5 backdrop-blur-md border border-white/10 hover:bg-white/5 transition-all duration-200 shadow-sm hover:shadow">
+                  <div className="text-[10px] text-foreground-500">Avg. Entry (₹)</div>
+                  <div className="font-medium text-sm">{formData.avgEntry?.toFixed(2) ?? '0.00'}</div>
                 </div>
                 <div className="p-3 rounded-md bg-default-100 border border-default-200">
-                  <div className="text-xs text-foreground-400 mb-1">Position Size (₹)</div>
-                  <div className="font-semibold">{formData.positionSize?.toFixed(2) ?? '0.00'}</div>
+                  <div className="text-[10px] text-foreground-500">Position (₹)</div>
+                  <div className="font-medium text-sm">{(formData.positionSize / 1000)?.toFixed(1) ?? '0.0'}K</div>
                 </div>
                 <div className="p-3 rounded-md bg-default-100 border border-default-200">
-                  <div className="text-xs text-foreground-400 mb-1">Allocation (%)</div>
-                  <div className="font-semibold">{formData.allocation?.toFixed(2) ?? '0.00'}%</div>
+                  <div className="text-[10px] text-foreground-500">Alloc. (%)</div>
+                  <div className="font-medium text-sm">{formData.allocation?.toFixed(1) ?? '0.0'}%</div>
                 </div>
                 <div className="p-3 rounded-md bg-default-100 border border-default-200">
                   <div className="text-xs text-foreground-400 mb-1">Open Qty (qty)</div>
@@ -818,14 +818,14 @@ import { validateTrade, TradeIssue } from "../utils/tradeValidations";
 
               {/* Add Validation Messages below summary cards */}
               {validationIssues.length > 0 && (
-                <div className="mb-6">
+                <div className="mb-4 backdrop-blur-lg bg-white/5 rounded-lg p-2 border border-white/10 text-sm transform-gpu">
                   {validationIssues.map((issue, index) => (
                     <div
                       key={index}
-                      className={`p-3 rounded-md mb-2 flex items-center gap-2 ${
+                      className={`p-2 text-sm rounded-lg mb-1.5 flex items-center gap-2 backdrop-blur-md ${
                         issue.type === 'error' 
-                          ? 'bg-danger-50 border border-danger-200 text-danger-700'
-                          : 'bg-warning-50 border border-warning-200 text-warning-700'
+                          ? 'bg-danger-500/10 border border-danger-500/20 text-danger-200 backdrop-blur-md'
+                          : 'bg-warning-500/10 border border-warning-500/20 text-warning-200 backdrop-blur-md'
                       }`}
                     >
                       <Icon 
@@ -845,7 +845,7 @@ import { validateTrade, TradeIssue } from "../utils/tradeValidations";
                   initial={{ opacity: 0, x: 10 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -10 }}
-                  transition={{ duration: 0.15 }}
+                  transition={{ duration: 0.15, ease: [0.2, 0, 0.2, 1] }}
                   className="transform-gpu"
                 >
                   {renderFields()}
@@ -853,17 +853,26 @@ import { validateTrade, TradeIssue } from "../utils/tradeValidations";
               </AnimatePresence>
             </ModalBody>
             <Divider />
-            <ModalFooter>
-              <Button variant="flat" onPress={onClose}>
+            <ModalFooter className="border-t border-gray-200 dark:border-gray-700 py-2 px-4 bg-white/80 dark:bg-transparent">
+              <Button 
+                variant="flat" 
+                onPress={onClose}
+                className="bg-white hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 h-8 min-w-20 text-xs text-gray-800 dark:text-gray-200"
+              >
                 Cancel
               </Button>
                 <Button 
                   color="primary" 
-                onPress={handleSubmit}
+                  onPress={handleSubmit}
                   isDisabled={validationIssues.some(issue => issue.type === 'error')}
-                  startContent={<Icon icon={mode === "add" ? "lucide:plus" : "lucide:save"} />}
+                  className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-md shadow-blue-500/20 h-8 min-w-24 text-sm"
+                  className="min-w-8 w-8 h-8 p-0 flex items-center justify-center bg-gray-800 hover:bg-gray-900 text-white shadow-sm rounded-full"
+                  isIconOnly
                 >
-                  {mode === "add" ? "Add Trade" : "Save Changes"}
+                  <Icon 
+                    icon={mode === "add" ? "lucide:plus" : "lucide:check"} 
+                    className="h-4 w-4"
+                  />
                 </Button>
             </ModalFooter>
           </>

@@ -39,9 +39,11 @@ const years = Array.from({ length: endYear - startYear + 1 }, (_, i) => startYea
 interface ProfileSettingsModalProps {
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
+  userName: string;
+  setUserName: (name: string) => void;
 }
 
-export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({ isOpen, onOpenChange }) => {
+export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({ isOpen, onOpenChange, userName, setUserName }) => {
   const { 
     portfolioSize, 
     monthlyPortfolioSizes, 
@@ -208,6 +210,12 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({ isOp
           <>
             <ModalHeader className="flex flex-col gap-1">Portfolio Settings</ModalHeader>
             <ModalBody>
+              <Input
+                label="Your Name"
+                value={userName}
+                onValueChange={setUserName}
+                className="mb-4"
+              />
               <Tabs 
                 selectedKey={selectedTab}
                 onSelectionChange={(key) => setSelectedTab(key as string)}
