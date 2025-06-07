@@ -12,6 +12,7 @@ import {
   ReferenceLine
 } from "recharts";
 import { useTrades } from "../../hooks/use-trades";
+import { usePortfolio } from "../../utils/PortfolioContext";
 
 function getMonthShort(dateStr: string) {
   const d = new Date(dateStr);
@@ -33,13 +34,16 @@ interface TaxSummaryChartProps {
 
 export const TaxSummaryChart: React.FC<TaxSummaryChartProps> = ({ taxesByMonth }) => {
   const { trades } = useTrades();
+  const { getPortfolioSize } = usePortfolio();
   
   // Group trades by month
-  const monthlyMap: Record<string, { grossPL: number }> = {};
+  const monthlyMap: Record<string, { grossPL: number, year: number }> = {};
   trades.forEach(trade => {
+    const d = new Date(trade.date);
     const key = getMonthShort(trade.date);
-    if (!monthlyMap[key]) monthlyMap[key] = { grossPL: 0 };
+    if (!monthlyMap[key]) monthlyMap[key] = { grossPL: 0, year: d.getFullYear() };
     monthlyMap[key].grossPL += trade.plRs || 0;
+    monthlyMap[key].year = d.getFullYear();
   });
 
   // Output months in calendar order
@@ -54,13 +58,15 @@ export const TaxSummaryChart: React.FC<TaxSummaryChartProps> = ({ taxesByMonth }
     const grossPL = monthlyMap[month]?.grossPL || 0;
     const taxes = taxesByMonth[longMonth || ""] || 0;
     const netPL = grossPL - taxes;
-    
+    const year = monthlyMap[month]?.year || new Date().getFullYear();
+    const portfolioSize = getPortfolioSize(month, year);
+    const plPercent = portfolioSize > 0 ? (grossPL / portfolioSize) * 100 : 0;
     return {
       month,
       grossPL,
       netPL,
       taxes,
-      plPercent: grossPL ? (grossPL / Math.abs(grossPL) * 100) : 0
+      plPercent
     };
   });
 

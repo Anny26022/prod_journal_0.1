@@ -311,7 +311,8 @@ import { validateTrade, TradeIssue } from "../utils/tradeValidations";
     'totalInvestment', 'exit1Amount', 'exit2Amount', 'exit3Amount', 'totalExitAmount',
     'pnl', 'pnlPercent', 'roi', 'avgEntry', 'allocation', 'slPercent', 'exitedQty',
     'openQty', 'avgExitPrice', 'stockMove', 'rewardRisk', 'holdingDays',
-    'realisedAmount', 'plRs', 'pfImpact', 'cummPf'
+    'realisedAmount', 'plRs', 'pfImpact', 'cummPf',
+    'cmp' // Make CMP read-only
   ], []);
   
   const debouncedFormData = useDebounce(formData, 300);

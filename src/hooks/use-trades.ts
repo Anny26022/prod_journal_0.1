@@ -330,24 +330,36 @@ export const useTrades = () => {
   }, [portfolioSize]);
 
   const addTrade = React.useCallback((trade: Trade) => {
-    setTrades(prev => recalculateAllTrades([trade, ...prev], portfolioSize, getPortfolioSize));
-  }, [portfolioSize]);
+    setTrades(prev => {
+      const newTrades = recalculateAllTrades([trade, ...prev], portfolioSize, getPortfolioSize);
+      upsertTrades(newTrades); // Persist to Supabase
+      return newTrades;
+    });
+  }, [portfolioSize, getPortfolioSize]);
 
   const updateTrade = React.useCallback((updatedTrade: Trade) => {
-    setTrades(prev => recalculateAllTrades(
-      prev.map(trade => trade.id === updatedTrade.id ? updatedTrade : trade),
-      portfolioSize,
-      getPortfolioSize
-    ));
-  }, [portfolioSize]);
+    setTrades(prev => {
+      const newTrades = recalculateAllTrades(
+        prev.map(trade => trade.id === updatedTrade.id ? updatedTrade : trade),
+        portfolioSize,
+        getPortfolioSize
+      );
+      upsertTrades(newTrades); // Persist to Supabase
+      return newTrades;
+    });
+  }, [portfolioSize, getPortfolioSize]);
 
   const deleteTrade = React.useCallback((id: string) => {
-    setTrades(prev => recalculateAllTrades(
-      prev.filter(trade => trade.id !== id),
-      portfolioSize,
-      getPortfolioSize
-    ));
-  }, [portfolioSize]);
+    setTrades(prev => {
+      const newTrades = recalculateAllTrades(
+        prev.filter(trade => trade.id !== id),
+        portfolioSize,
+        getPortfolioSize
+      );
+      upsertTrades(newTrades); // Persist to Supabase
+      return newTrades;
+    });
+  }, [portfolioSize, getPortfolioSize]);
 
   const filteredTrades = React.useMemo(() => {
     let result = [...trades];

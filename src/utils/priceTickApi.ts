@@ -119,68 +119,39 @@ const getLastFriday = (): Date => {
  */
 export const fetchPriceTicks = async (
   symbol: string,
-  fromDate: Date = getTodayMarketOpen(),
-  toDate: Date = new Date(),
+  fromDate?: Date,
+  toDate?: Date,
   interval: string = '1m'
 ): Promise<PriceTicksResponse> => {
   try {
     const now = getCurrentISTDate();
+    const day = now.getDay();
+    let from: Date, to: Date;
+    if ((day === 0 || day === 6) && !fromDate && !toDate) { // If weekend and no explicit dates
+      // Get last Friday
+      const lastFriday = new Date(now);
+      // Go back to Friday
+      lastFriday.setDate(now.getDate() - ((day === 0) ? 2 : 1));
+      lastFriday.setHours(9, 8, 0, 0); // Market open time
+      const fridayClose = new Date(lastFriday);
+      fridayClose.setHours(15, 30, 0, 0); // Market close time
+      from = lastFriday;
+      to = fridayClose;
+    } else {
+      from = fromDate || getTodayMarketOpen();
+      to = toDate || new Date();
+    }
     
-    // Removed check to prevent API calls on weekends or outside market hours
-    // if (isWeekend(now)) {
-    //   // If it's Saturday or Sunday, return the stored Friday close price if available
-    //   if (fridayClosePrice !== null && lastFridayDate) {
-    //     const friday = getLastFriday();
-    //     if (isSameDayIST(friday, lastFridayDate)) {
-    //       const fridayCloseTime = new Date(friday);
-    //       fridayCloseTime.setHours(15, 30, 0, 0);
-            
-    //       return {
-    //         data: {
-    //           statistic: 0,
-    //           count: 1,
-    //           fields: ['dateTime', 'open', 'high', 'low', 'close', 'volume', 'dayVolume'],
-    //           ticks: {
-    //             [symbol]: [
-    //               [
-    //                 fridayCloseTime.toISOString(),
-    //                 fridayClosePrice,
-    //                 fridayClosePrice,
-    //                 fridayClosePrice,
-    //                 fridayClosePrice,
-    //                 0,
-    //                 0
-    //               ]
-    //             ]
-    //           }
-    //         }
-    //       };
-    //     }
-    //   }
-    //   throw new Error('Market is closed on weekends');
-    // }
-
     // Format dates to match the required API format (YYYY-MM-DDTHH:mm:ss+05:30)
     const formatForApi = (date: Date) => {
       const pad = (num: number) => num.toString().padStart(2, '0');
       // Format as: YYYY-MM-DDTHH:mm:ss+05:30
       return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}%3A${pad(date.getMinutes())}%3A${pad(date.getSeconds())}%2B05%3A30`;
     };
-
-    // Ensure we're only fetching for the current date
-    // The API might still only return data for market hours depending on its implementation
-    const marketClose = getTodayMarketClose();
-    
-    // If after market close, use market close time
-    // Removed the check to always use current time for 'to' date
-    // const endTime = now > marketClose ? marketClose : now;
-    const endTime = new Date();
-    
-    const from = formatForApi(fromDate);
-    const to = formatForApi(endTime);
+    const fromStr = formatForApi(from);
+    const toStr = formatForApi(to);
     const encodedSymbol = `EQ%3A${symbol.toUpperCase()}`;
-    
-    const url = `https://api-prod-v21.strike.money/v2/api/equity/priceticks?candleInterval=${interval}&from=${from}&to=${to}&securities=${encodedSymbol}`;
+    const url = `https://api-prod-v21.strike.money/v2/api/equity/priceticks?candleInterval=${interval}&from=${fromStr}&to=${toStr}&securities=${encodedSymbol}`;
     
     const response = await fetch(url, {
       method: 'GET',
@@ -199,7 +170,7 @@ export const fetchPriceTicks = async (
     
     // Store Friday's close price if today is Friday and market is closed
     // This logic is still relevant for potential caching but won't prevent calls
-    if (isFriday(now) && now > marketClose) {
+    if (isFriday(now) && now > getTodayMarketClose()) {
       const ticks = data.data.ticks[symbol];
       if (ticks && ticks.length > 0) {
         const lastTick = ticks[ticks.length - 1];

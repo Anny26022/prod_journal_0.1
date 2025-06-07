@@ -380,7 +380,8 @@ export const TradeJournal = React.memo(function TradeJournal({
     // Calculated fields
     'avgEntry', 'positionSize', 'allocation', 'openQty', 'exitedQty',
     'avgExitPrice', 'stockMove', 'slPercent', 'openHeat', 'rewardRisk',
-    'holdingDays', 'realisedAmount', 'plRs', 'pfImpact', 'cummPf'
+    'holdingDays', 'realisedAmount', 'plRs', 'pfImpact', 'cummPf',
+    'cmp' // CMP should not be editable inline
     // 'initialQty' REMOVED to allow inline editing
   ];
 
@@ -1394,7 +1395,7 @@ export const TradeJournal = React.memo(function TradeJournal({
                 </DropdownTrigger>
                 <DropdownMenu 
                   aria-label="Columns selection"
-                  className="dark:bg-gray-900"
+                  className="dark:bg-gray-900 max-h-60 overflow-y-auto" // <-- add scroller
                   closeOnSelect={false}
                   selectionMode="multiple"
                   selectedKeys={new Set(visibleColumns)}
