@@ -121,7 +121,10 @@ export const TradeJournal = React.memo(function TradeJournal({
   } = useTrades();
   
   const { portfolioSize, getPortfolioSize } = useTruePortfolioWithTrades(trades);
-  
+
+  // State for inline editing
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+
   // Memoize filtered and sorted trades
   const processedTrades = useMemo(() => {
     return trades
@@ -287,6 +290,8 @@ export const TradeJournal = React.memo(function TradeJournal({
     return trades.slice(start, end);
   }, [page, trades, rowsPerPage]);
 
+
+
   // Single source of truth for column definitions
   const allColumns = React.useMemo(() => [
     { key: "tradeNo", label: "Trade No.", sortable: true },
@@ -369,7 +374,7 @@ export const TradeJournal = React.memo(function TradeJournal({
     }
   };
 
-  const [editingId, setEditingId] = React.useState<string | null>(null);
+
 
   // List of calculated fields that should not be editable
   const nonEditableFields = [
@@ -384,14 +389,16 @@ export const TradeJournal = React.memo(function TradeJournal({
   // Check if a field is editable
   const isEditable = (field: string) => !nonEditableFields.includes(field);
 
-  const handleInlineEditSave = async (tradeId: string, field: keyof Trade, value: any) => {
+
+
+  const handleInlineEditSave = React.useCallback(async (tradeId: string, field: keyof Trade, value: any) => {
     try {
       // Prevent editing of non-editable fields
       if (!isEditable(field as string)) {
         console.warn(`Field ${field} is not editable`);
         return;
       }
-      
+
       const tradeToUpdate = trades.find(t => t.id === tradeId);
       if (!tradeToUpdate) {
         console.error(`Trade with id ${tradeId} not found`);
@@ -427,7 +434,7 @@ export const TradeJournal = React.memo(function TradeJournal({
 
       // Recalculate dependent fields if needed
       if ([
-        'entry', 'sl', 'tsl', 'initialQty', 'pyramid1Qty', 'pyramid2Qty', 
+        'entry', 'sl', 'tsl', 'initialQty', 'pyramid1Qty', 'pyramid2Qty',
         'exit1Price', 'exit2Price', 'exit3Price', 'cmp'
       ].includes(field as string)) {
         updatedTrade.openHeat = calcTradeOpenHeat(updatedTrade, portfolioSize, getPortfolioSize);
@@ -445,17 +452,20 @@ export const TradeJournal = React.memo(function TradeJournal({
         }
       }
 
+      // Update immediately without debouncing to prevent flickering
       try {
         await updateTrade(updatedTrade);
-        setEditingId(null);
         console.log('Trade updated successfully:', updatedTrade);
       } catch (error) {
         console.error('Error updating trade:', error);
       }
+
     } catch (error) {
       console.error('Error in handleInlineEditSave:', error);
     }
-  };
+  }, [trades, isEditable, portfolioSize, getPortfolioSize, updateTrade]);
+
+
 
 
 
@@ -1266,10 +1276,7 @@ export const TradeJournal = React.memo(function TradeJournal({
     };
   }, [trades, portfolioSize]);
 
-  // Memoize the trades hash to prevent unnecessary re-renders
-  const tradesHash = React.useMemo(() => {
-    return trades.map(t => t.id).join('-') + '-' + portfolioSize;
-  }, [trades, portfolioSize]);
+
 
   // Memoize open trades to prevent unnecessary price fetching
   const openTrades = React.useMemo(() =>
@@ -1569,7 +1576,6 @@ export const TradeJournal = React.memo(function TradeJournal({
         <CardBody className="p-0">
           <div className="relative">
           <Table
-            key={tradesHash}
             aria-label="Trade journal table"
             bottomContent={
               pages > 0 ? (
