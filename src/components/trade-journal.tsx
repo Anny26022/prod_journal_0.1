@@ -285,7 +285,7 @@ export const TradeJournal = React.memo(function TradeJournal({
     const start = (page - 1) * rowsPerPage;
     const end = start + rowsPerPage;
     return trades.slice(start, end);
-  }, [page, trades, rowsPerPage, portfolioSize]);
+  }, [page, trades, rowsPerPage]);
 
   // Single source of truth for column definitions
   const allColumns = React.useMemo(() => [
@@ -1844,7 +1844,7 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(function EditableCe
     }
   };
 
-  const getInitialEditValue = () => {
+  const getInitialEditValue = React.useCallback(() => {
     if (type === 'date') {
       if (!value || value === '' || value === null || value === undefined) {
         return '';
@@ -1852,9 +1852,9 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(function EditableCe
       return formatDateForDisplay(value as string);
     }
     return String(value ?? '');
-  };
+  }, [type, value]);
 
-  const [editValue, setEditValue] = React.useState(getInitialEditValue());
+  const [editValue, setEditValue] = React.useState(() => getInitialEditValue());
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
@@ -1866,7 +1866,7 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(function EditableCe
 
   React.useEffect(() => {
     setEditValue(getInitialEditValue());
-  }, [value, type]);
+  }, [getInitialEditValue]);
 
   const handleSave = () => {
     setIsEditing(false);
