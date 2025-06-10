@@ -1,5 +1,4 @@
-import React, { createContext, useContext, useState } from "react";
-import { supabase, SINGLE_USER_ID } from '../utils/supabaseClient';
+import React, { createContext, useContext, useState, useMemo } from "react";
 
 export type FilterType = "all" | "week" | "month" | "fy" | "cy" | "custom";
 export interface GlobalFilter {
@@ -25,43 +24,47 @@ export const GlobalFilterProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [filter, setFilter] = useState<GlobalFilter>({ type: 'all' });
   const [loading, setLoading] = React.useState(true);
 
-  // Supabase helpers for global filter
-  async function fetchGlobalFilter() {
-    const { data, error } = await supabase
-      .from('global_filters')
-      .select('filter')
-      .eq('id', SINGLE_USER_ID)
-      .single();
-    if (error && error.code !== 'PGRST116') {
+  // localStorage helpers for global filter
+  function fetchGlobalFilter() {
+    try {
+      const stored = localStorage.getItem('globalFilter');
+      return stored ? { filter: JSON.parse(stored) } : null;
+    } catch (error) {
       console.error('Error fetching global filter:', error);
+      return null;
     }
-    return data;
   }
 
-  async function upsertGlobalFilter(filterObj: GlobalFilter) {
-    const { error } = await supabase
-      .from('global_filters')
-      .upsert({ id: SINGLE_USER_ID, filter: filterObj }, { onConflict: 'id' });
-    if (error) console.error('Supabase upsert error:', error);
+  function saveGlobalFilter(filterObj: GlobalFilter) {
+    try {
+      localStorage.setItem('globalFilter', JSON.stringify(filterObj));
+    } catch (error) {
+      console.error('localStorage save error:', error);
+    }
   }
 
   React.useEffect(() => {
-    fetchGlobalFilter().then((row) => {
-      if (row && row.filter) {
-        setFilter(row.filter);
-      }
-      setLoading(false);
-    });
+    const row = fetchGlobalFilter();
+    if (row && row.filter) {
+      setFilter(row.filter);
+    }
+    setLoading(false);
   }, []);
 
   React.useEffect(() => {
     if (!loading) {
-      upsertGlobalFilter(filter);
+      saveGlobalFilter(filter);
     }
   }, [filter, loading]);
 
+  // Memoize the context value to prevent unnecessary re-renders
+  const contextValue = useMemo(() => ({
+    filter,
+    setFilter
+  }), [filter, setFilter]);
+
   return (
-    <GlobalFilterContext.Provider value={{ filter, setFilter }}>
+    <GlobalFilterContext.Provider value={contextValue}>
       {children}
     </GlobalFilterContext.Provider>
   );

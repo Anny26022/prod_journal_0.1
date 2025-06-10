@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useMemo, useCallback } from "react";
 import { Icon } from "@iconify/react";
 import { Route, Switch, Link, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -17,7 +17,7 @@ import { GlobalFilterBar } from "./components/GlobalFilterBar";
 import { TradeTrackerLogo } from './components/icons/TradeTrackerLogo';
 import { AnimatedBrandName } from './components/AnimatedBrandName';
 import DeepAnalyticsPage from "./pages/DeepAnalyticsPage";
-import { supabase, SINGLE_USER_ID } from './utils/supabaseClient';
+// Removed Supabase import - using localStorage only
 
 export default function App() {
   const location = useLocation();
@@ -38,35 +38,55 @@ export default function App() {
     return 'Aniket Mahato';
   };
 
-  React.useEffect(() => {
-    // Load preferences from Supabase on mount
-    fetchUserPreferences().then((prefs) => {
-      if (prefs) {
-        setIsMobileMenuOpen(!!prefs.is_mobile_menu_open);
-        setIsProfileOpen(!!prefs.is_profile_open);
-        setUserName(prefs.user_name || 'Aniket Mahato');
-      }
-      setLoadingPrefs(false);
-    });
+  // Memoize localStorage helper functions to prevent re-creation on every render
+  const fetchUserPreferences = useCallback(() => {
+    try {
+      const stored = localStorage.getItem('userPreferences');
+      return stored ? JSON.parse(stored) : null;
+    } catch (error) {
+      console.error('Error fetching user preferences:', error);
+      return null;
+    }
   }, []);
 
-  React.useEffect(() => {
-    if (!loadingPrefs) {
-      upsertUserPreferences({ is_mobile_menu_open: isMobileMenuOpen });
+  const saveUserPreferences = useCallback((prefs: Partial<{ is_mobile_menu_open: boolean; is_profile_open: boolean; user_name: string }>) => {
+    try {
+      const existing = fetchUserPreferences() || {};
+      const updated = { ...existing, ...prefs };
+      localStorage.setItem('userPreferences', JSON.stringify(updated));
+    } catch (error) {
+      console.error('localStorage save error:', error);
     }
-  }, [isMobileMenuOpen, loadingPrefs]);
+  }, [fetchUserPreferences]);
+
+  React.useEffect(() => {
+    // Load preferences from localStorage on mount
+    const prefs = fetchUserPreferences();
+    if (prefs) {
+      setIsMobileMenuOpen(!!prefs.is_mobile_menu_open);
+      setIsProfileOpen(!!prefs.is_profile_open);
+      setUserName(prefs.user_name || 'Aniket Mahato');
+    }
+    setLoadingPrefs(false);
+  }, [fetchUserPreferences]);
 
   React.useEffect(() => {
     if (!loadingPrefs) {
-      upsertUserPreferences({ is_profile_open: isProfileOpen });
+      saveUserPreferences({ is_mobile_menu_open: isMobileMenuOpen });
     }
-  }, [isProfileOpen, loadingPrefs]);
+  }, [isMobileMenuOpen, loadingPrefs, saveUserPreferences]);
 
   React.useEffect(() => {
     if (!loadingPrefs) {
-      upsertUserPreferences({ user_name: userName });
+      saveUserPreferences({ is_profile_open: isProfileOpen });
     }
-  }, [userName, loadingPrefs]);
+  }, [isProfileOpen, loadingPrefs, saveUserPreferences]);
+
+  React.useEffect(() => {
+    if (!loadingPrefs) {
+      saveUserPreferences({ user_name: userName });
+    }
+  }, [userName, loadingPrefs, saveUserPreferences]);
 
   const handleToggleMainContentFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -85,33 +105,16 @@ export default function App() {
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  const navItems = [
+  // Memoize navigation items to prevent unnecessary re-renders
+  const navItems = useMemo(() => [
     { path: "/", name: "Journal", icon: "lucide:book-open" },
     { path: "/analytics", name: "Analytics", icon: "lucide:bar-chart-2" },
     { path: "/tax-analytics", name: "Tax Analytics", icon: "lucide:calculator" },
     { path: "/monthly-performance", name: "Monthly Performance", icon: "lucide:calendar-check" },
     { path: "/deep-analytics", name: "Deep Analytics", icon: "lucide:pie-chart" }
-  ];
+  ], []);
 
-  // Supabase helpers for user preferences
-  async function fetchUserPreferences() {
-    const { data, error } = await supabase
-      .from('user_preferences')
-      .select('*')
-      .eq('id', SINGLE_USER_ID)
-      .single();
-    if (error && error.code !== 'PGRST116') { // Ignore no rows found
-      console.error('Error fetching user preferences:', error);
-    }
-    return data;
-  }
 
-  async function upsertUserPreferences(prefs: Partial<{ is_mobile_menu_open: boolean; is_profile_open: boolean; user_name: string }>) {
-    const { error } = await supabase
-      .from('user_preferences')
-      .upsert({ id: SINGLE_USER_ID, ...prefs }, { onConflict: 'id' });
-    if (error) console.error('Supabase upsert error:', error);
-  }
 
   return (
     <TruePortfolioProvider>

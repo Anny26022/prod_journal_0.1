@@ -12,7 +12,7 @@ import {
   Tab
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
-import { supabase, SINGLE_USER_ID } from '../../utils/supabaseClient';
+// Removed Supabase import - using localStorage only
 
 interface TaxEditModalProps {
   isOpen: boolean;
@@ -20,24 +20,23 @@ interface TaxEditModalProps {
   month: string | null;
 }
 
-// Supabase helpers
-async function fetchTaxData() {
-  const { data, error } = await supabase
-    .from('tax_data')
-    .select('data')
-    .eq('id', SINGLE_USER_ID)
-    .single();
-  if (error && error.code !== 'PGRST116') {
+// localStorage helpers
+function fetchTaxData() {
+  try {
+    const stored = localStorage.getItem('taxData');
+    return stored ? JSON.parse(stored) : {};
+  } catch (error) {
     console.error('Error fetching tax data:', error);
+    return {};
   }
-  return data?.data || {};
 }
 
-async function upsertTaxData(taxData: any) {
-  const { error } = await supabase
-    .from('tax_data')
-    .upsert({ id: SINGLE_USER_ID, data: taxData }, { onConflict: 'id' });
-  if (error) console.error('Supabase upsert error:', error);
+function saveTaxData(taxData: any) {
+  try {
+    localStorage.setItem('taxData', JSON.stringify(taxData));
+  } catch (error) {
+    console.error('localStorage save error:', error);
+  }
 }
 
 export const TaxEditModal: React.FC<TaxEditModalProps> = ({
@@ -182,16 +181,14 @@ export const TaxEditModal: React.FC<TaxEditModalProps> = ({
     const pathParts = window.location.pathname.split('/');
     const yearFromUrl = pathParts[pathParts.length - 1];
     const selectedYear = yearFromUrl && !isNaN(Number(yearFromUrl)) ? yearFromUrl : new Date().getFullYear().toString();
-    // Get existing tax data from Supabase
-    fetchTaxData().then((allTaxData) => {
-      const currentData = { ...allTaxData };
-      currentData[selectedYear] = currentData[selectedYear] || {};
-      currentData[selectedYear][month] = taxes;
-      upsertTaxData(currentData).then(() => {
-        onOpenChange(false);
-        window.dispatchEvent(new Event('storage'));
-      });
-    });
+    // Get existing tax data from localStorage
+    const allTaxData = fetchTaxData();
+    const currentData = { ...allTaxData };
+    currentData[selectedYear] = currentData[selectedYear] || {};
+    currentData[selectedYear][month] = taxes;
+    saveTaxData(currentData);
+    onOpenChange(false);
+    window.dispatchEvent(new Event('storage'));
   }, [month, taxes, onOpenChange]);
 
   // Calculate Net P/L and Tax Percentage

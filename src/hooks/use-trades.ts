@@ -19,7 +19,7 @@ import {
   calcPFImpact,
   calcRealizedPL_FIFO
 } from "../utils/tradeCalculations";
-import { supabase, SINGLE_USER_ID } from '../utils/supabaseClient';
+// Removed Supabase import - using localStorage only
 
 // Define SortDirection type compatible with HeroUI Table
 type SortDirection = "ascending" | "descending";
@@ -180,31 +180,25 @@ function recalculateAllTrades(trades: Trade[], getTruePortfolioSize?: (month: st
   });
 }
 
-// Supabase helpers
-async function fetchTrades() {
-  const { data, error } = await supabase
-    .from('trades')
-    .select('trade_data')
-    .eq('id', SINGLE_USER_ID)
-    .single();
-  if (error) {
-    if (error.code !== 'PGRST116') { // PGRST116 means no rows found
-      console.error('Error fetching trades:', error);
-    }
+// localStorage helpers
+function fetchTrades(): Trade[] {
+  try {
+    const stored = localStorage.getItem('trades_supabase');
+    return stored ? JSON.parse(stored) : [];
+  } catch (error) {
+    console.error('Error fetching trades:', error);
     return [];
   }
-  return data?.trade_data || [];
 }
 
-async function upsertTrades(trades: any[]) {
-  const { error } = await supabase
-    .from('trades')
-    .upsert({ id: SINGLE_USER_ID, trade_data: trades }, { onConflict: 'id' });
-  if (error) {
-    console.error('Supabase upsert error:', error);
+function saveTrades(trades: Trade[]) {
+  try {
+    localStorage.setItem('trades_supabase', JSON.stringify(trades));
+    return true;
+  } catch (error) {
+    console.error('localStorage save error:', error);
     return false;
   }
-  return true;
 }
 
 // Define ALL_COLUMNS here, as it's closely tied to the hook's state
@@ -217,39 +211,40 @@ const ALL_COLUMNS = [
   'planFollowed', 'exitTrigger', 'proficiencyGrowthAreas', 'unrealizedPL', 'actions', 'notes'
 ];
 
-async function fetchTradeSettings() {
-  const { data, error } = await supabase
-    .from('trade_settings')
-    .select('*')
-    .eq('id', SINGLE_USER_ID)
-    .single();
-  if (error) {
-    if (error.code !== 'PGRST116') { // PGRST116 means no rows found
-      console.error('Error fetching trade settings:', error);
+function fetchTradeSettings() {
+  try {
+    const stored = localStorage.getItem('tradeSettings');
+    if (stored) {
+      return JSON.parse(stored);
     }
     // If no settings found, create default settings with ALL columns visible
     const defaultSettings = {
-      id: SINGLE_USER_ID,
       visible_columns: ALL_COLUMNS,
       search_query: '',
       status_filter: '',
       sort_descriptor: { column: 'tradeNo', direction: 'ascending' }
     };
-    await upsertTradeSettings(defaultSettings);
+    saveTradeSettings(defaultSettings);
     return defaultSettings;
+  } catch (error) {
+    console.error('Error fetching trade settings:', error);
+    return {
+      visible_columns: ALL_COLUMNS,
+      search_query: '',
+      status_filter: '',
+      sort_descriptor: { column: 'tradeNo', direction: 'ascending' }
+    };
   }
-  return data || {};
 }
 
-async function upsertTradeSettings(settings: any) {
-  const { error } = await supabase
-    .from('trade_settings')
-    .upsert({ id: SINGLE_USER_ID, ...settings }, { onConflict: 'id' });
-  if (error) {
-    console.error('Supabase upsert error:', error);
+function saveTradeSettings(settings: any) {
+  try {
+    localStorage.setItem('tradeSettings', JSON.stringify(settings));
+    return true;
+  } catch (error) {
+    console.error('localStorage save error:', error);
     return false;
   }
-  return true;
 }
 
 export const useTrades = () => {
@@ -265,16 +260,14 @@ export const useTrades = () => {
   const truePortfolio = useTruePortfolioWithTrades(trades);
   const { portfolioSize, getPortfolioSize } = truePortfolio;
 
-  // Load from Supabase on mount
+  // Load from localStorage on mount
   React.useEffect(() => {
-    const loadData = async () => {
+    const loadData = () => {
       try {
         setIsLoading(true);
-        const [loadedTrades, settings] = await Promise.all([
-          fetchTrades(),
-          fetchTradeSettings()
-        ]);
-        
+        const loadedTrades = fetchTrades();
+        const settings = fetchTradeSettings();
+
         setTrades(loadedTrades);
         setSearchQuery(settings.search_query || '');
         setStatusFilter(settings.status_filter || '');
@@ -286,24 +279,20 @@ export const useTrades = () => {
         setIsLoading(false);
       }
     };
-    
+
     loadData();
   }, []);
 
-  // Save trade settings to Supabase
+  // Save trade settings to localStorage
   React.useEffect(() => {
     if (!isLoading) {
-      const saveSettings = async () => {
-        const settings = {
-          search_query: searchQuery,
-          status_filter: statusFilter,
-          sort_descriptor: sortDescriptor,
-          visible_columns: visibleColumns
-        };
-        await upsertTradeSettings(settings);
+      const settings = {
+        search_query: searchQuery,
+        status_filter: statusFilter,
+        sort_descriptor: sortDescriptor,
+        visible_columns: visibleColumns
       };
-      
-      saveSettings();
+      saveTradeSettings(settings);
     }
   }, [searchQuery, statusFilter, sortDescriptor, visibleColumns, isLoading]);
 
@@ -338,7 +327,7 @@ export const useTrades = () => {
   const addTrade = React.useCallback((trade: Trade) => {
     setTrades(prev => {
       const newTrades = recalculateAllTrades([trade, ...prev], getPortfolioSize);
-      upsertTrades(newTrades); // Persist to Supabase
+      saveTrades(newTrades); // Persist to localStorage
       return newTrades;
     });
   }, [getPortfolioSize]);
@@ -349,7 +338,7 @@ export const useTrades = () => {
         prev.map(trade => trade.id === updatedTrade.id ? updatedTrade : trade),
         getPortfolioSize
       );
-      upsertTrades(newTrades); // Persist to Supabase
+      saveTrades(newTrades); // Persist to localStorage
       return newTrades;
     });
   }, [getPortfolioSize]);
@@ -360,7 +349,7 @@ export const useTrades = () => {
         prev.filter(trade => trade.id !== id),
         getPortfolioSize
       );
-      upsertTrades(newTrades); // Persist to Supabase
+      saveTrades(newTrades); // Persist to localStorage
       return newTrades;
     });
   }, [getPortfolioSize]);

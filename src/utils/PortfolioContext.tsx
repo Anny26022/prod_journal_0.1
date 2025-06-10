@@ -1,5 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from "react";
-import { supabase, SINGLE_USER_ID } from './supabaseClient';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useMemo } from "react";
 
 export interface MonthlyPortfolioSize {
   month: string;
@@ -21,44 +20,42 @@ const DEFAULT_PORTFOLIO_SIZE = 100000; // Default 100k
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
 
-// Supabase helpers
-async function fetchPortfolioSizes() {
-  const { data, error } = await supabase
-    .from('portfolio_sizes')
-    .select('sizes')
-    .eq('id', SINGLE_USER_ID)
-    .single();
-  if (error && error.code !== 'PGRST116') {
+// localStorage helpers
+function fetchPortfolioSizes(): MonthlyPortfolioSize[] {
+  try {
+    const stored = localStorage.getItem('portfolioSizes');
+    return stored ? JSON.parse(stored) : [];
+  } catch (error) {
     console.error('Error fetching portfolio sizes:', error);
+    return [];
   }
-  return data?.sizes || [];
 }
 
-async function upsertPortfolioSizes(sizes: any[]) {
-  const { error } = await supabase
-    .from('portfolio_sizes')
-    .upsert({ id: SINGLE_USER_ID, sizes }, { onConflict: 'id' });
-  if (error) console.error('Supabase upsert error:', error);
+function savePortfolioSizes(sizes: MonthlyPortfolioSize[]) {
+  try {
+    localStorage.setItem('portfolioSizes', JSON.stringify(sizes));
+  } catch (error) {
+    console.error('localStorage save error:', error);
+  }
 }
 
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   const [monthlyPortfolioSizes, setMonthlyPortfolioSizes] = useState<MonthlyPortfolioSize[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
-  // Load from Supabase on mount
+  // Load from localStorage on mount
   useEffect(() => {
-    fetchPortfolioSizes().then((sizes) => {
-      if (Array.isArray(sizes)) {
-        setMonthlyPortfolioSizes(sizes);
-      }
-      setHydrated(true);
-    });
+    const sizes = fetchPortfolioSizes();
+    if (Array.isArray(sizes)) {
+      setMonthlyPortfolioSizes(sizes);
+    }
+    setHydrated(true);
   }, []);
 
-  // Save to Supabase when monthlyPortfolioSizes changes
+  // Save to localStorage when monthlyPortfolioSizes changes
   useEffect(() => {
-    if (hydrated && monthlyPortfolioSizes.length > 0) {
-      upsertPortfolioSizes(monthlyPortfolioSizes);
+    if (hydrated) {
+      savePortfolioSizes(monthlyPortfolioSizes);
     }
   }, [monthlyPortfolioSizes, hydrated]);
 
@@ -146,19 +143,20 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     return sorted[0].size;
   }, [monthlyPortfolioSizes]);
 
+  // Memoize the context value to prevent unnecessary re-renders
+  const contextValue = useMemo(() => ({
+    portfolioSize: portfolioSize(),
+    monthlyPortfolioSizes,
+    setPortfolioSize,
+    getPortfolioSize,
+    getLatestPortfolioSize
+  }), [portfolioSize, monthlyPortfolioSizes, setPortfolioSize, getPortfolioSize, getLatestPortfolioSize]);
+
   // Only render children after hydration
   if (!hydrated) return null;
 
   return (
-    <PortfolioContext.Provider 
-      value={{
-        portfolioSize: portfolioSize(),
-        monthlyPortfolioSizes,
-        setPortfolioSize,
-        getPortfolioSize,
-        getLatestPortfolioSize
-      }}
-    >
+    <PortfolioContext.Provider value={contextValue}>
       {children}
     </PortfolioContext.Provider>
   );

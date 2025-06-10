@@ -1,5 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from "react";
-import { supabase, SINGLE_USER_ID } from './supabaseClient';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useMemo } from "react";
 
 export interface YearlyStartingCapital {
   year: number;
@@ -64,85 +63,73 @@ interface TruePortfolioContextType {
 
 const TruePortfolioContext = createContext<TruePortfolioContextType | undefined>(undefined);
 
-// Supabase helpers
-async function fetchYearlyStartingCapitals() {
-  console.log('📥 Loading yearly starting capitals from Supabase...');
-  const { data, error } = await supabase
-    .from('yearly_starting_capitals')
-    .select('capitals')
-    .eq('id', SINGLE_USER_ID)
-    .single();
-  if (error && error.code !== 'PGRST116') {
+// localStorage helpers
+function fetchYearlyStartingCapitals(): YearlyStartingCapital[] {
+  console.log('📥 Loading yearly starting capitals from localStorage...');
+  try {
+    const stored = localStorage.getItem('yearlyStartingCapitals');
+    const capitals = stored ? JSON.parse(stored) : [];
+    console.log('✅ Yearly starting capitals loaded:', capitals);
+    return capitals;
+  } catch (error) {
     console.error('❌ Error fetching yearly starting capitals:', error);
-  } else {
-    console.log('✅ Yearly starting capitals loaded:', data?.capitals || []);
+    return [];
   }
-  return data?.capitals || [];
 }
 
-async function upsertYearlyStartingCapitals(capitals: YearlyStartingCapital[]) {
-  console.log('💾 Saving yearly starting capitals to Supabase:', capitals);
-  const { error } = await supabase
-    .from('yearly_starting_capitals')
-    .upsert({ id: SINGLE_USER_ID, capitals }, { onConflict: 'id' });
-  if (error) {
-    console.error('❌ Supabase upsert error for yearly capitals:', error);
-  } else {
+function saveYearlyStartingCapitals(capitals: YearlyStartingCapital[]) {
+  console.log('💾 Saving yearly starting capitals to localStorage:', capitals);
+  try {
+    localStorage.setItem('yearlyStartingCapitals', JSON.stringify(capitals));
     console.log('✅ Yearly starting capitals saved successfully');
+  } catch (error) {
+    console.error('❌ localStorage save error for yearly capitals:', error);
   }
 }
 
-async function fetchCapitalChanges() {
-  console.log('📥 Loading capital changes from Supabase...');
-  const { data, error } = await supabase
-    .from('capital_changes')
-    .select('changes')
-    .eq('id', SINGLE_USER_ID)
-    .single();
-  if (error && error.code !== 'PGRST116') {
+function fetchCapitalChanges(): CapitalChange[] {
+  console.log('📥 Loading capital changes from localStorage...');
+  try {
+    const stored = localStorage.getItem('capitalChanges');
+    const changes = stored ? JSON.parse(stored) : [];
+    console.log('✅ Capital changes loaded:', changes);
+    return changes;
+  } catch (error) {
     console.error('❌ Error fetching capital changes:', error);
-  } else {
-    console.log('✅ Capital changes loaded:', data?.changes || []);
+    return [];
   }
-  return data?.changes || [];
 }
 
-async function upsertCapitalChanges(changes: CapitalChange[]) {
-  console.log('💾 Saving capital changes to Supabase:', changes);
-  const { error } = await supabase
-    .from('capital_changes')
-    .upsert({ id: SINGLE_USER_ID, changes }, { onConflict: 'id' });
-  if (error) {
-    console.error('❌ Supabase upsert error for capital changes:', error);
-  } else {
+function saveCapitalChanges(changes: CapitalChange[]) {
+  console.log('💾 Saving capital changes to localStorage:', changes);
+  try {
+    localStorage.setItem('capitalChanges', JSON.stringify(changes));
     console.log('✅ Capital changes saved successfully');
+  } catch (error) {
+    console.error('❌ localStorage save error for capital changes:', error);
   }
 }
 
-async function fetchMonthlyStartingCapitalOverrides() {
-  console.log('📥 Loading monthly starting capital overrides from Supabase...');
-  const { data, error } = await supabase
-    .from('monthly_starting_capital_overrides')
-    .select('overrides')
-    .eq('id', SINGLE_USER_ID)
-    .single();
-  if (error && error.code !== 'PGRST116') {
+function fetchMonthlyStartingCapitalOverrides(): MonthlyStartingCapitalOverride[] {
+  console.log('📥 Loading monthly starting capital overrides from localStorage...');
+  try {
+    const stored = localStorage.getItem('monthlyStartingCapitalOverrides');
+    const overrides = stored ? JSON.parse(stored) : [];
+    console.log('✅ Monthly starting capital overrides loaded:', overrides);
+    return overrides;
+  } catch (error) {
     console.error('❌ Error fetching monthly starting capital overrides:', error);
-  } else {
-    console.log('✅ Monthly starting capital overrides loaded:', data?.overrides || []);
+    return [];
   }
-  return data?.overrides || [];
 }
 
-async function upsertMonthlyStartingCapitalOverrides(overrides: MonthlyStartingCapitalOverride[]) {
-  console.log('💾 Saving monthly starting capital overrides to Supabase:', overrides);
-  const { error } = await supabase
-    .from('monthly_starting_capital_overrides')
-    .upsert({ id: SINGLE_USER_ID, overrides }, { onConflict: 'id' });
-  if (error) {
-    console.error('❌ Supabase upsert error for monthly overrides:', error);
-  } else {
+function saveMonthlyStartingCapitalOverrides(overrides: MonthlyStartingCapitalOverride[]) {
+  console.log('💾 Saving monthly starting capital overrides to localStorage:', overrides);
+  try {
+    localStorage.setItem('monthlyStartingCapitalOverrides', JSON.stringify(overrides));
     console.log('✅ Monthly starting capital overrides saved successfully');
+  } catch (error) {
+    console.error('❌ localStorage save error for monthly overrides:', error);
   }
 }
 
@@ -152,92 +139,28 @@ export const TruePortfolioProvider = ({ children }: { children: ReactNode }) => 
   const [monthlyStartingCapitalOverrides, setMonthlyStartingCapitalOverrides] = useState<MonthlyStartingCapitalOverride[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
-  // Load from Supabase and localStorage on mount
+  // Load from localStorage on mount
   useEffect(() => {
-    const loadData = async () => {
+    const loadData = () => {
       try {
-        // Try to load from Supabase first
-        const [capitals, changes, overrides] = await Promise.all([
-          fetchYearlyStartingCapitals(),
-          fetchCapitalChanges(),
-          fetchMonthlyStartingCapitalOverrides()
-        ]);
+        // Load from localStorage
+        const capitals = fetchYearlyStartingCapitals();
+        const changes = fetchCapitalChanges();
+        const overrides = fetchMonthlyStartingCapitalOverrides();
 
-        if (Array.isArray(capitals) && capitals.length > 0) {
+        if (Array.isArray(capitals)) {
           setYearlyStartingCapitals(capitals);
-        } else {
-          // Fallback to localStorage
-          const localCapitals = localStorage.getItem('yearlyStartingCapitals');
-          if (localCapitals) {
-            try {
-              const parsed = JSON.parse(localCapitals);
-              if (Array.isArray(parsed)) {
-                setYearlyStartingCapitals(parsed);
-              }
-            } catch (e) {
-              console.warn('Failed to parse localStorage yearlyStartingCapitals');
-            }
-          }
         }
 
-        if (Array.isArray(changes) && changes.length > 0) {
+        if (Array.isArray(changes)) {
           setCapitalChanges(changes);
-        } else {
-          // Fallback to localStorage
-          const localChanges = localStorage.getItem('capitalChanges');
-          if (localChanges) {
-            try {
-              const parsed = JSON.parse(localChanges);
-              if (Array.isArray(parsed)) {
-                setCapitalChanges(parsed);
-              }
-            } catch (e) {
-              console.warn('Failed to parse localStorage capitalChanges');
-            }
-          }
         }
 
-        if (Array.isArray(overrides) && overrides.length > 0) {
+        if (Array.isArray(overrides)) {
           setMonthlyStartingCapitalOverrides(overrides);
-        } else {
-          // Fallback to localStorage
-          const localOverrides = localStorage.getItem('monthlyStartingCapitalOverrides');
-          if (localOverrides) {
-            try {
-              const parsed = JSON.parse(localOverrides);
-              if (Array.isArray(parsed)) {
-                setMonthlyStartingCapitalOverrides(parsed);
-              }
-            } catch (e) {
-              console.warn('Failed to parse localStorage monthlyStartingCapitalOverrides');
-            }
-          }
         }
       } catch (error) {
-        console.error('Error loading true portfolio data:', error);
-        // Load from localStorage as fallback
-        try {
-          const localCapitals = localStorage.getItem('yearlyStartingCapitals');
-          const localChanges = localStorage.getItem('capitalChanges');
-          const localOverrides = localStorage.getItem('monthlyStartingCapitalOverrides');
-
-          if (localCapitals) {
-            const parsed = JSON.parse(localCapitals);
-            if (Array.isArray(parsed)) setYearlyStartingCapitals(parsed);
-          }
-
-          if (localChanges) {
-            const parsed = JSON.parse(localChanges);
-            if (Array.isArray(parsed)) setCapitalChanges(parsed);
-          }
-
-          if (localOverrides) {
-            const parsed = JSON.parse(localOverrides);
-            if (Array.isArray(parsed)) setMonthlyStartingCapitalOverrides(parsed);
-          }
-        } catch (e) {
-          console.warn('Failed to load from localStorage fallback');
-        }
+        console.error('Error loading true portfolio data:', error)
       } finally {
         setHydrated(true);
       }
@@ -246,43 +169,22 @@ export const TruePortfolioProvider = ({ children }: { children: ReactNode }) => 
     loadData();
   }, []);
 
-  // Save to Supabase and localStorage when data changes
+  // Save to localStorage when data changes
   useEffect(() => {
     if (hydrated) {
-      // Save to Supabase
-      upsertYearlyStartingCapitals(yearlyStartingCapitals);
-      // Also save to localStorage as backup
-      try {
-        localStorage.setItem('yearlyStartingCapitals', JSON.stringify(yearlyStartingCapitals));
-      } catch (error) {
-        console.warn('Failed to save yearlyStartingCapitals to localStorage:', error);
-      }
+      saveYearlyStartingCapitals(yearlyStartingCapitals);
     }
   }, [yearlyStartingCapitals, hydrated]);
 
   useEffect(() => {
     if (hydrated) {
-      // Save to Supabase
-      upsertCapitalChanges(capitalChanges);
-      // Also save to localStorage as backup
-      try {
-        localStorage.setItem('capitalChanges', JSON.stringify(capitalChanges));
-      } catch (error) {
-        console.warn('Failed to save capitalChanges to localStorage:', error);
-      }
+      saveCapitalChanges(capitalChanges);
     }
   }, [capitalChanges, hydrated]);
 
   useEffect(() => {
     if (hydrated) {
-      // Save to Supabase
-      upsertMonthlyStartingCapitalOverrides(monthlyStartingCapitalOverrides);
-      // Also save to localStorage as backup
-      try {
-        localStorage.setItem('monthlyStartingCapitalOverrides', JSON.stringify(monthlyStartingCapitalOverrides));
-      } catch (error) {
-        console.warn('Failed to save monthlyStartingCapitalOverrides to localStorage:', error);
-      }
+      saveMonthlyStartingCapitalOverrides(monthlyStartingCapitalOverrides);
     }
   }, [monthlyStartingCapitalOverrides, hydrated]);
 
@@ -592,30 +494,48 @@ export const TruePortfolioProvider = ({ children }: { children: ReactNode }) => 
     }
   }, [getLatestTruePortfolioSize]);
 
+  // Memoize the context value to prevent unnecessary re-renders
+  const contextValue = useMemo(() => ({
+    getTruePortfolioSize,
+    getLatestTruePortfolioSize,
+    yearlyStartingCapitals,
+    setYearlyStartingCapital,
+    getYearlyStartingCapital,
+    monthlyStartingCapitalOverrides,
+    setMonthlyStartingCapitalOverride,
+    removeMonthlyStartingCapitalOverride,
+    getMonthlyStartingCapitalOverride,
+    capitalChanges,
+    addCapitalChange,
+    updateCapitalChange,
+    deleteCapitalChange,
+    getMonthlyTruePortfolio,
+    getAllMonthlyTruePortfolios,
+    portfolioSize
+  }), [
+    getTruePortfolioSize,
+    getLatestTruePortfolioSize,
+    yearlyStartingCapitals,
+    setYearlyStartingCapital,
+    getYearlyStartingCapital,
+    monthlyStartingCapitalOverrides,
+    setMonthlyStartingCapitalOverride,
+    removeMonthlyStartingCapitalOverride,
+    getMonthlyStartingCapitalOverride,
+    capitalChanges,
+    addCapitalChange,
+    updateCapitalChange,
+    deleteCapitalChange,
+    getMonthlyTruePortfolio,
+    getAllMonthlyTruePortfolios,
+    portfolioSize
+  ]);
+
   // Only render children after hydration
   if (!hydrated) return null;
 
   return (
-    <TruePortfolioContext.Provider
-      value={{
-        getTruePortfolioSize,
-        getLatestTruePortfolioSize,
-        yearlyStartingCapitals,
-        setYearlyStartingCapital,
-        getYearlyStartingCapital,
-        monthlyStartingCapitalOverrides,
-        setMonthlyStartingCapitalOverride,
-        removeMonthlyStartingCapitalOverride,
-        getMonthlyStartingCapitalOverride,
-        capitalChanges,
-        addCapitalChange,
-        updateCapitalChange,
-        deleteCapitalChange,
-        getMonthlyTruePortfolio,
-        getAllMonthlyTruePortfolios,
-        portfolioSize
-      }}
-    >
+    <TruePortfolioContext.Provider value={contextValue}>
       {children}
     </TruePortfolioContext.Provider>
   );

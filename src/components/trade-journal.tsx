@@ -37,28 +37,24 @@ import { calcSLPercent, calcHoldingDays, calcUnrealizedPL, calcRealizedPL_FIFO, 
 import { fetchPriceTicks } from '../utils/priceTickApi';
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
-import { supabase } from '../utils/supabaseClient';
+// Removed Supabase import - using localStorage only
 
-// Supabase helpers for misc data
-async function fetchMiscData(key: string) {
-  const { data, error } = await supabase
-    .from('misc_data')
-    .select('value')
-    .eq('key', key)
-    .single();
-  if (error && error.code !== 'PGRST116') { // Ignore 'No rows found' error
+// localStorage helpers for misc data
+function fetchMiscData(key: string) {
+  try {
+    const stored = localStorage.getItem(`misc_${key}`);
+    return stored ? JSON.parse(stored) : null;
+  } catch (error) {
     console.error('Error fetching misc data:', error);
     return null;
   }
-  return data?.value || null;
 }
 
-async function upsertMiscData(key: string, value: any) {
-  const { error } = await supabase
-    .from('misc_data')
-    .upsert({ key, value }, { onConflict: 'key' });
-  if (error) {
-    console.error('Error upserting misc data:', error);
+function saveMiscData(key: string, value: any) {
+  try {
+    localStorage.setItem(`misc_${key}`, JSON.stringify(value));
+  } catch (error) {
+    console.error('Error saving misc data:', error);
   }
 }
 
@@ -1246,89 +1242,69 @@ export const TradeJournal = React.memo(function TradeJournal({
     }
   };
 
-  // DEBUG: Log portfolio size and open/partial trade fields for Open Heat calculation
-  React.useEffect(() => {
-    console.log("[DEBUG] Portfolio Size:", portfolioSize);
-    trades.filter(t => t.positionStatus === 'Open' || t.positionStatus === 'Partial').forEach(t => {
-      console.log(`[DEBUG] Trade: ${t.name}`, {
-        entry: t.entry,
-        avgEntry: t.avgEntry,
-        sl: t.sl,
-        tsl: t.tsl,
-        openQty: t.openQty,
-        openHeat: calcTradeOpenHeat(t, portfolioSize, getPortfolioSize)
-      });
-    });
-  }, [trades, portfolioSize, getPortfolioSize]);
+  // Removed debug console.log statements to prevent unnecessary re-renders
 
-  // DEBUG: Log trades and portfolio size for Open Heat reactivity
-  React.useEffect(() => {
-    console.log('[DEBUG] Open Heat dependencies changed:', { trades, portfolioSize });
+  // Memoize expensive calculations to prevent unnecessary re-renders
+  const { totalUnrealizedPL, openPfImpact, totalRealizedPL, realizedPfImpact } = React.useMemo(() => {
+    const unrealizedPL = trades
+      .filter(trade => trade.positionStatus === 'Open' || trade.positionStatus === 'Partial')
+      .reduce((sum, trade) => sum + calcUnrealizedPL(trade.avgEntry, trade.cmp, trade.openQty, trade.buySell), 0);
+
+    const openImpact = portfolioSize > 0 ? (unrealizedPL / portfolioSize) * 100 : 0;
+
+    const realizedPL = trades
+      .filter(trade => trade.positionStatus !== 'Open')
+      .reduce((sum, trade) => sum + trade.plRs, 0);
+
+    const realizedImpact = portfolioSize > 0 ? (realizedPL / portfolioSize) * 100 : 0;
+
+    return {
+      totalUnrealizedPL: unrealizedPL,
+      openPfImpact: openImpact,
+      totalRealizedPL: realizedPL,
+      realizedPfImpact: realizedImpact
+    };
   }, [trades, portfolioSize]);
 
-  // PF Impact calculations for tooltips
-  const totalUnrealizedPL = trades
-    .filter(trade => trade.positionStatus === 'Open' || trade.positionStatus === 'Partial')
-    .reduce((sum, trade) => sum + calcUnrealizedPL(trade.avgEntry, trade.cmp, trade.openQty, trade.buySell), 0);
-
-  const openPfImpact = portfolioSize > 0 ? (totalUnrealizedPL / portfolioSize) * 100 : 0;
-
-  const totalRealizedPL = trades
-    .filter(trade => trade.positionStatus !== 'Open')
-    .reduce((sum, trade) => sum + trade.plRs, 0);
-
-  const realizedPfImpact = portfolioSize > 0 ? (totalRealizedPL / portfolioSize) * 100 : 0;
-
-  // Utility to create a simple hash from trades for key
-  function tradesHash(trades, portfolioSize) {
-    // Use a simple sum of trade ids and portfolioSize for a fast hash
+  // Memoize the trades hash to prevent unnecessary re-renders
+  const tradesHash = React.useMemo(() => {
     return trades.map(t => t.id).join('-') + '-' + portfolioSize;
-  }
+  }, [trades, portfolioSize]);
+
+  // Memoize open trades to prevent unnecessary price fetching
+  const openTrades = React.useMemo(() =>
+    trades.filter(t => t.positionStatus === 'Open' || t.positionStatus === 'Partial'),
+    [trades]
+  );
+
+  // Memoize the price fetching function to prevent re-creation
+  const fetchPricesForOpenTrades = React.useCallback(async () => {
+    for (const trade of openTrades) {
+      if (trade.name) {
+        try {
+          const priceData = await fetchPriceTicks(trade.name);
+          const ticks = priceData?.data?.ticks?.[trade.name.toUpperCase()];
+          if (ticks && ticks.length > 0) {
+            const latestTick = ticks[ticks.length - 1];
+            if (trade.cmp !== latestTick[4]) {
+              updateTrade({ ...trade, cmp: latestTick[4] });
+            }
+          }
+        } catch (err) {
+          // Optionally handle error
+        }
+      }
+    }
+  }, [openTrades, updateTrade]);
 
   useEffect(() => {
-    // Immediate fetch on mount or trades change
-    (async () => {
-      const openTrades = trades.filter(t => t.positionStatus === 'Open' || t.positionStatus === 'Partial');
-      for (const trade of openTrades) {
-        if (trade.name) {
-          try {
-            const priceData = await fetchPriceTicks(trade.name);
-            const ticks = priceData?.data?.ticks?.[trade.name.toUpperCase()];
-            if (ticks && ticks.length > 0) {
-              const latestTick = ticks[ticks.length - 1];
-              if (trade.cmp !== latestTick[4]) {
-                updateTrade({ ...trade, cmp: latestTick[4] });
-              }
-            }
-          } catch (err) {
-            // Optionally handle error
-          }
-        }
-      }
-    })();
+    // Immediate fetch on mount or open trades change
+    fetchPricesForOpenTrades();
 
     // Continue polling every 15 seconds
-    const interval = setInterval(async () => {
-      const openTrades = trades.filter(t => t.positionStatus === 'Open' || t.positionStatus === 'Partial');
-      for (const trade of openTrades) {
-        if (trade.name) {
-          try {
-            const priceData = await fetchPriceTicks(trade.name);
-            const ticks = priceData?.data?.ticks?.[trade.name.toUpperCase()];
-            if (ticks && ticks.length > 0) {
-              const latestTick = ticks[ticks.length - 1];
-              if (trade.cmp !== latestTick[4]) {
-                updateTrade({ ...trade, cmp: latestTick[4] });
-              }
-            }
-          } catch (err) {
-            // Optionally handle error
-          }
-        }
-      }
-    }, 15000); // 15 seconds
+    const interval = setInterval(fetchPricesForOpenTrades, 15000);
     return () => clearInterval(interval);
-  }, [trades, updateTrade]);
+  }, [fetchPricesForOpenTrades]);
 
   return (
     <div className="space-y-4">
@@ -1548,7 +1524,6 @@ export const TradeJournal = React.memo(function TradeJournal({
         </div>
         <div className="flex items-center gap-1">
           <StatsCard
-            key={trades.length + '-' + portfolioSize + '-' + trades.map(t => t.id).join('-')}
             title="Open Heat"
             value={calcOpenHeat(trades, portfolioSize, getPortfolioSize).toFixed(2) + "%"}
             icon="lucide:flame"
@@ -1594,7 +1569,7 @@ export const TradeJournal = React.memo(function TradeJournal({
         <CardBody className="p-0">
           <div className="relative">
           <Table
-            key={tradesHash(trades, portfolioSize)}
+            key={tradesHash}
             aria-label="Trade journal table"
             bottomContent={
               pages > 0 ? (
@@ -1833,22 +1808,28 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(function EditableCe
   // Format date as dd-mm-yyyy for display and editing
   const formatDateForDisplay = (dateStr: string) => {
     try {
+      if (!dateStr || dateStr.trim() === '') return '';
       const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return '';
       return date.toLocaleDateString('en-GB', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric'
       }).replace(/\//g, '-');
     } catch (e) {
-      return dateStr;
+      return '';
     }
   };
 
   // Convert dd-mm-yyyy to yyyy-mm-dd for the native date input
   const convertToISODate = (displayDate: string) => {
     try {
-      const [day, month, year] = displayDate.split('-');
-      return `${year}-${month}-${day}`;
+      if (!displayDate || displayDate.trim() === '') return '';
+      const parts = displayDate.split('-');
+      if (parts.length !== 3) return '';
+      const [day, month, year] = parts;
+      if (!day || !month || !year || day === 'undefined' || month === 'undefined' || year === 'undefined') return '';
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
     } catch (e) {
       return '';
     }
@@ -1864,7 +1845,10 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(function EditableCe
   };
 
   const getInitialEditValue = () => {
-    if (type === 'date' && value) {
+    if (type === 'date') {
+      if (!value || value === '' || value === null || value === undefined) {
+        return '';
+      }
       return formatDateForDisplay(value as string);
     }
     return String(value ?? '');
@@ -2126,13 +2110,12 @@ const GROWTH_AREAS_LOCAL_KEY = 'custom_growth_areas_options';
 const ProficiencyGrowthAreasCell: React.FC<ProficiencyGrowthAreasCellProps> = React.memo(function ProficiencyGrowthAreasCell({ value, onSave }) {
   const [options, setOptions] = React.useState<string[]>([...PROFICIENCY_GROWTH_AREAS]);
   React.useEffect(() => {
-    fetchMiscData(GROWTH_AREAS_LOCAL_KEY).then((stored) => {
-      if (stored) {
-        try {
-          if (Array.isArray(stored)) setOptions([...PROFICIENCY_GROWTH_AREAS, ...stored.filter(o => !PROFICIENCY_GROWTH_AREAS.includes(o))]);
-        } catch {}
-      }
-    });
+    const stored = fetchMiscData(GROWTH_AREAS_LOCAL_KEY);
+    if (stored) {
+      try {
+        if (Array.isArray(stored)) setOptions([...PROFICIENCY_GROWTH_AREAS, ...stored.filter(o => !PROFICIENCY_GROWTH_AREAS.includes(o))]);
+      } catch {}
+    }
   }, []);
 
   const handleSelect = (selected: string) => {
@@ -2141,7 +2124,7 @@ const ProficiencyGrowthAreasCell: React.FC<ProficiencyGrowthAreasCellProps> = Re
       if (newValue && !options.some(o => o.toLowerCase() === newValue.toLowerCase())) {
         const newOptions = [...options, newValue];
         setOptions(newOptions);
-        upsertMiscData(GROWTH_AREAS_LOCAL_KEY, newOptions.filter(o => !PROFICIENCY_GROWTH_AREAS.includes(o)));
+        saveMiscData(GROWTH_AREAS_LOCAL_KEY, newOptions.filter(o => !PROFICIENCY_GROWTH_AREAS.includes(o)));
         onSave(newValue);
       } else if (newValue) {
         onSave(newValue);
@@ -2450,13 +2433,12 @@ const SetupCell: React.FC<SetupCellProps> = React.memo(function SetupCell({ valu
   const [options, setOptions] = React.useState<string[]>([...SETUP_OPTIONS]);
 
   React.useEffect(() => {
-    fetchMiscData(SETUP_LOCAL_KEY).then((stored) => {
-      if (stored) {
-        try {
-          if (Array.isArray(stored)) setOptions([...SETUP_OPTIONS, ...stored.filter(o => !SETUP_OPTIONS.includes(o))]);
-        } catch {}
-      }
-    });
+    const stored = fetchMiscData(SETUP_LOCAL_KEY);
+    if (stored) {
+      try {
+        if (Array.isArray(stored)) setOptions([...SETUP_OPTIONS, ...stored.filter(o => !SETUP_OPTIONS.includes(o))]);
+      } catch {}
+    }
   }, []);
 
   const handleSelect = (selected: string) => {
@@ -2465,7 +2447,7 @@ const SetupCell: React.FC<SetupCellProps> = React.memo(function SetupCell({ valu
       if (newValue && !options.some(o => o.toLowerCase() === newValue.toLowerCase())) {
         const newOptions = [...options, newValue];
         setOptions(newOptions);
-        upsertMiscData(SETUP_LOCAL_KEY, newOptions.filter(o => !SETUP_OPTIONS.includes(o)));
+        saveMiscData(SETUP_LOCAL_KEY, newOptions.filter(o => !SETUP_OPTIONS.includes(o)));
         onSave(newValue);
       } else if (newValue) {
         onSave(newValue);
@@ -2531,13 +2513,12 @@ const ExitTriggerCell: React.FC<ExitTriggerCellProps> = React.memo(function Exit
   const [options, setOptions] = React.useState<string[]>([...EXIT_TRIGGER_OPTIONS]);
 
   React.useEffect(() => {
-    fetchMiscData(EXIT_TRIGGER_LOCAL_KEY).then((stored) => {
-      if (stored) {
-        try {
-          if (Array.isArray(stored)) setOptions([...EXIT_TRIGGER_OPTIONS, ...stored.filter(o => !EXIT_TRIGGER_OPTIONS.includes(o))]);
-        } catch {}
-      }
-    });
+    const stored = fetchMiscData(EXIT_TRIGGER_LOCAL_KEY);
+    if (stored) {
+      try {
+        if (Array.isArray(stored)) setOptions([...EXIT_TRIGGER_OPTIONS, ...stored.filter(o => !EXIT_TRIGGER_OPTIONS.includes(o))]);
+      } catch {}
+    }
   }, []);
 
   const handleSelect = (selected: string) => {
@@ -2546,7 +2527,7 @@ const ExitTriggerCell: React.FC<ExitTriggerCellProps> = React.memo(function Exit
       if (newValue && !options.some(o => o.toLowerCase() === newValue.toLowerCase())) {
         const newOptions = [...options, newValue];
         setOptions(newOptions);
-        upsertMiscData(EXIT_TRIGGER_LOCAL_KEY, newOptions.filter(o => !EXIT_TRIGGER_OPTIONS.includes(o)));
+        saveMiscData(EXIT_TRIGGER_LOCAL_KEY, newOptions.filter(o => !EXIT_TRIGGER_OPTIONS.includes(o)));
         onSave(newValue);
       } else if (newValue) {
         onSave(newValue);

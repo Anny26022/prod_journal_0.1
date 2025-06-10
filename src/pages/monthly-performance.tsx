@@ -6,6 +6,9 @@ import { useTrades } from "../hooks/use-trades";
 import { useTruePortfolioWithTrades } from "../hooks/use-true-portfolio-with-trades";
 import { calcXIRR } from "../utils/tradeCalculations";
 
+// Helper function to create safe dependencies for useEffect/useMemo
+const safeDeps = (deps: any[]) => deps;
+
 interface MonthlyData {
   month: string;
   addedWithdrawn: number;
@@ -46,11 +49,7 @@ export const MonthlyPerformanceTable: React.FC = () => {
     deleteCapitalChange
   } = useTruePortfolioWithTrades(trades);
 
-  // Debug: Log trades data
-  React.useEffect(() => {
-    console.log('Total trades loaded:', trades.length);
-    console.log('Trades sample:', trades.slice(0, 3)); // First 3 trades
-  }, safeDeps([trades]));
+  // Removed debug console.log to prevent unnecessary re-renders
 
   // Get all monthly portfolio data
   const monthlyPortfolios = getAllMonthlyTruePortfolios();
@@ -66,35 +65,46 @@ export const MonthlyPerformanceTable: React.FC = () => {
 
   // Build monthly data from trades with proper date handling
   const monthOrder = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const monthlyMap: Record<string, { trades: typeof trades; date: Date }> = {};
-  
-  // Filter trades by selected year first
-  const filteredTrades = trades.filter(trade => {
-    if (!trade.date) return false;
-    const tradeYear = new Date(trade.date).getFullYear();
-    return tradeYear === selectedYear;
-  });
 
-  // Then group by month
-  filteredTrades.forEach(trade => {
-    const d = new Date(trade.date);
-    const month = d.toLocaleString('default', { month: 'short' });
-    if (!monthlyMap[month]) {
-      monthlyMap[month] = { trades: [], date: d };
-    }
-    monthlyMap[month].trades.push(trade);
-  });
+  // Memoize filtered trades to prevent unnecessary recalculations
+  const filteredTrades = React.useMemo(() =>
+    trades.filter(trade => {
+      if (!trade.date) return false;
+      const tradeYear = new Date(trade.date).getFullYear();
+      return tradeYear === selectedYear;
+    }),
+    [trades, selectedYear]
+  );
 
-  // Sort trades by date within each month
-  Object.values(monthlyMap).forEach(monthData => {
-    monthData.trades.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  });
+  // Memoize monthly map calculation
+  const monthlyMap = React.useMemo(() => {
+    const map: Record<string, { trades: typeof trades; date: Date }> = {};
 
-  // Filter monthly portfolios for selected year
-  const filteredMonthlyPortfolios = monthlyPortfolios.filter(mp => mp.year === selectedYear);
+    filteredTrades.forEach(trade => {
+      const d = new Date(trade.date);
+      const month = d.toLocaleString('default', { month: 'short' });
+      if (!map[month]) {
+        map[month] = { trades: [], date: d };
+      }
+      map[month].trades.push(trade);
+    });
 
-  // Build monthly data for the selected year
-  const initialMonthlyData = monthOrder.map((month, i) => {
+    // Sort trades by date within each month
+    Object.values(map).forEach(monthData => {
+      monthData.trades.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    });
+
+    return map;
+  }, [filteredTrades]);
+
+  // Memoize filtered monthly portfolios
+  const filteredMonthlyPortfolios = React.useMemo(() =>
+    monthlyPortfolios.filter(mp => mp.year === selectedYear),
+    [monthlyPortfolios, selectedYear]
+  );
+
+  // Memoize initial monthly data calculation
+  const initialMonthlyData = React.useMemo(() => monthOrder.map((month, i) => {
     const monthData = monthlyMap[month] || { trades: [], date: new Date() };
     const monthTrades = monthData.trades;
     const tradesCount = monthTrades.length;
@@ -165,7 +175,7 @@ export const MonthlyPerformanceTable: React.FC = () => {
       rollingReturn6M: 0,
       rollingReturn12M: 0
     };
-  });
+  }), [monthOrder, monthlyMap, filteredMonthlyPortfolios, selectedYear, capitalChanges, getPortfolioSize]);
 
   // Effect to update yearly starting capital when portfolio size changes
   React.useEffect(() => {
@@ -1015,9 +1025,4 @@ export const MonthlyPerformanceTable: React.FC = () => {
       </div>
     </div>
   );
-}; 
-
-// Defensive utility to ensure dependency arrays are always arrays
-function safeDeps(deps: any) {
-  return Array.isArray(deps) ? deps : [];
-} 
+};

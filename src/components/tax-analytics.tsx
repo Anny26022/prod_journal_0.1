@@ -27,7 +27,7 @@ import { TaxMetricsCards } from "./tax/tax-metrics-cards";
 import { TaxTable } from "./tax/tax-table";
 import { TaxEditModal } from "./tax/tax-edit-modal";
 import { useTrades } from "../hooks/use-trades";
-import { supabase, SINGLE_USER_ID } from '../utils/supabaseClient';
+// Removed Supabase import - using localStorage only
 
 // Editable Text Component
 const EditableText: React.FC<{
@@ -83,24 +83,23 @@ const EditableText: React.FC<{
   );
 };
 
-// Supabase helpers
-async function fetchTaxData() {
-  const { data, error } = await supabase
-    .from('tax_data')
-    .select('data')
-    .eq('id', SINGLE_USER_ID)
-    .single();
-  if (error && error.code !== 'PGRST116') {
+// localStorage helpers
+function fetchTaxData() {
+  try {
+    const stored = localStorage.getItem('taxData');
+    return stored ? JSON.parse(stored) : {};
+  } catch (error) {
     console.error('Error fetching tax data:', error);
+    return {};
   }
-  return data?.data || {};
 }
 
-async function upsertTaxData(taxData: any) {
-  const { error } = await supabase
-    .from('tax_data')
-    .upsert({ id: SINGLE_USER_ID, data: taxData }, { onConflict: 'id' });
-  if (error) console.error('Supabase upsert error:', error);
+function saveTaxData(taxData: any) {
+  try {
+    localStorage.setItem('taxData', JSON.stringify(taxData));
+  } catch (error) {
+    console.error('localStorage save error:', error);
+  }
 }
 
 export const TaxAnalytics: React.FC = () => {
@@ -117,16 +116,15 @@ export const TaxAnalytics: React.FC = () => {
   
   // Function to load tax data for the selected year
   const loadTaxData = useCallback(() => {
-    fetchTaxData().then((allTaxData) => {
-      const yearData = allTaxData[selectedYear] || {};
-        if (Object.keys(yearData).length > 0) {
-        setTaxesByMonth(prev => ({ ...prev, ...yearData }));
-        } else {
-          const initialData: { [month: string]: number } = {};
-        monthOrder.forEach(month => { initialData[month] = 0; });
-          setTaxesByMonth(initialData);
-      }
-      });
+    const allTaxData = fetchTaxData();
+    const yearData = allTaxData[selectedYear] || {};
+    if (Object.keys(yearData).length > 0) {
+      setTaxesByMonth(prev => ({ ...prev, ...yearData }));
+    } else {
+      const initialData: { [month: string]: number } = {};
+      monthOrder.forEach(month => { initialData[month] = 0; });
+      setTaxesByMonth(initialData);
+    }
   }, [selectedYear]);
 
   // Load tax data on mount and when selectedYear changes
@@ -148,14 +146,13 @@ export const TaxAnalytics: React.FC = () => {
     };
   }, [loadTaxData]);
   
-  // Save tax data to Supabase when it changes
+  // Save tax data to localStorage when it changes
   React.useEffect(() => {
     if (Object.keys(taxesByMonth).length > 0 && selectedYear) {
-      fetchTaxData().then((allTaxData) => {
-        const currentData = { ...allTaxData };
-        currentData[selectedYear] = { ...taxesByMonth };
-        upsertTaxData(currentData);
-      });
+      const allTaxData = fetchTaxData();
+      const currentData = { ...allTaxData };
+      currentData[selectedYear] = { ...taxesByMonth };
+      saveTaxData(currentData);
     }
   }, [taxesByMonth, selectedYear]);
   

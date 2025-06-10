@@ -171,19 +171,24 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({ isOp
     removeMonthlyStartingCapitalOverride(month, year);
   };
 
-  // Sort capital changes by date (newest first)
-  const sortedCapitalChanges = [...capitalChanges].sort((a, b) =>
-    new Date(b.date).getTime() - new Date(a.date).getTime()
+  // Memoize sorted arrays to prevent unnecessary re-renders
+  const sortedCapitalChanges = React.useMemo(() =>
+    [...capitalChanges].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [capitalChanges]
   );
 
-  // Sort yearly starting capitals by year (newest first)
-  const sortedYearlyCapitals = [...yearlyStartingCapitals].sort((a, b) => b.year - a.year);
+  const sortedYearlyCapitals = React.useMemo(() =>
+    [...yearlyStartingCapitals].sort((a, b) => b.year - a.year),
+    [yearlyStartingCapitals]
+  );
 
-  // Sort monthly overrides by year and month (newest first)
-  const sortedMonthlyOverrides = [...monthlyStartingCapitalOverrides].sort((a, b) => {
-    if (a.year !== b.year) return b.year - a.year;
-    return months.indexOf(b.month) - months.indexOf(a.month);
-  });
+  const sortedMonthlyOverrides = React.useMemo(() =>
+    [...monthlyStartingCapitalOverrides].sort((a, b) => {
+      if (a.year !== b.year) return b.year - a.year;
+      return months.indexOf(b.month) - months.indexOf(a.month);
+    }),
+    [monthlyStartingCapitalOverrides, months]
+  );
 
   return (
     <Modal 

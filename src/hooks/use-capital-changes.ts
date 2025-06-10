@@ -2,7 +2,7 @@ import React from 'react';
 import { CapitalChange, MonthlyCapital, MonthlyCapitalHistory } from '../types/trade';
 import { generateId } from '../utils/helpers';
 import { usePortfolio } from '../utils/PortfolioContext';
-import { supabase, SINGLE_USER_ID } from '../utils/supabaseClient';
+// Removed Supabase import - using localStorage only
 
 const CAPITAL_CHANGES_STORAGE_KEY = 'capital_changes';
 const MONTHLY_CAPITAL_HISTORY_KEY = 'monthly_capital_history';
@@ -38,43 +38,42 @@ const saveMonthlyCapitalHistory = (history: MonthlyCapitalHistory[]) => {
   }
 };
 
-// Supabase helpers
-async function fetchCapitalChanges() {
-  const { data, error } = await supabase
-    .from('capital_changes')
-    .select('changes')
-    .eq('id', SINGLE_USER_ID)
-    .single();
-  if (error && error.code !== 'PGRST116') {
-    console.error('Error fetching capital changes:', error);
+// localStorage helpers (removed Supabase functions)
+
+function loadCapitalChanges(): CapitalChange[] {
+  try {
+    const stored = localStorage.getItem('capitalChanges');
+    return stored ? JSON.parse(stored) : [];
+  } catch (error) {
+    console.error('Error loading capital changes:', error);
+    return [];
   }
-  return data?.changes || [];
 }
 
-async function upsertCapitalChanges(changes: any[]) {
-  const { error } = await supabase
-    .from('capital_changes')
-    .upsert({ id: SINGLE_USER_ID, changes }, { onConflict: 'id' });
-  if (error) console.error('Supabase upsert error:', error);
+function saveCapitalChanges(changes: CapitalChange[]) {
+  try {
+    localStorage.setItem('capitalChanges', JSON.stringify(changes));
+  } catch (error) {
+    console.error('localStorage save error:', error);
+  }
 }
 
-async function fetchMonthlyCapitalHistory() {
-  const { data, error } = await supabase
-    .from('monthly_capital_history')
-    .select('history')
-    .eq('id', SINGLE_USER_ID)
-    .single();
-  if (error && error.code !== 'PGRST116') {
+function fetchMonthlyCapitalHistory(): any[] {
+  try {
+    const stored = localStorage.getItem('monthlyCapitalHistory');
+    return stored ? JSON.parse(stored) : [];
+  } catch (error) {
     console.error('Error fetching monthly capital history:', error);
+    return [];
   }
-  return data?.history || [];
 }
 
-async function upsertMonthlyCapitalHistory(history: any[]) {
-  const { error } = await supabase
-    .from('monthly_capital_history')
-    .upsert({ id: SINGLE_USER_ID, history }, { onConflict: 'id' });
-  if (error) console.error('Supabase upsert error:', error);
+function saveMonthlyCapitalHistory(history: any[]) {
+  try {
+    localStorage.setItem('monthlyCapitalHistory', JSON.stringify(history));
+  } catch (error) {
+    console.error('localStorage save error:', error);
+  }
 }
 
 export const useCapitalChanges = (trades: any[], initialPortfolioSize: number) => {
@@ -89,28 +88,26 @@ export const useCapitalChanges = (trades: any[], initialPortfolioSize: number) =
   const [monthlyCapitalHistory, setMonthlyCapitalHistory] = React.useState<MonthlyCapitalHistory[]>([]);
   const [loading, setLoading] = React.useState(true);
 
-  // Load from Supabase on mount
+  // Load from localStorage on mount
   React.useEffect(() => {
-    fetchCapitalChanges().then((loadedChanges) => {
-      setCapitalChanges(loadedChanges);
-      fetchMonthlyCapitalHistory().then((loadedHistory) => {
-        setMonthlyCapitalHistory(loadedHistory);
-        setLoading(false);
-      });
-    });
+    const loadedChanges = loadCapitalChanges();
+    setCapitalChanges(loadedChanges);
+    const loadedHistory = fetchMonthlyCapitalHistory();
+    setMonthlyCapitalHistory(loadedHistory);
+    setLoading(false);
   }, []);
 
-  // Save capital changes to Supabase
+  // Save capital changes to localStorage
   React.useEffect(() => {
     if (!loading) {
-      upsertCapitalChanges(capitalChanges);
+      saveCapitalChanges(capitalChanges);
     }
   }, [capitalChanges, loading]);
 
-  // Save monthly capital history to Supabase
+  // Save monthly capital history to localStorage
   React.useEffect(() => {
     if (!loading) {
-      upsertMonthlyCapitalHistory(monthlyCapitalHistory);
+      saveMonthlyCapitalHistory(monthlyCapitalHistory);
     }
   }, [monthlyCapitalHistory, loading]);
 
