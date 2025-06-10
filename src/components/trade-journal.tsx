@@ -655,7 +655,7 @@ export const TradeJournal = React.memo(function TradeJournal({
     );
   };
 
-  const renderCell = (trade: Trade, columnKey: string) => {
+  const renderCell = React.useCallback((trade: Trade, columnKey: string) => {
     const cellValue = trade[columnKey as keyof Trade];
 
     // Handle holding days display
@@ -1250,7 +1250,7 @@ export const TradeJournal = React.memo(function TradeJournal({
         const val = trade[columnKey as keyof Trade];
         return val !== undefined && val !== null ? String(val) : "-";
     }
-  };
+  }, [editingId, handleInlineEditSave, isEditable, portfolioSize, getPortfolioSize]);
 
   // Removed debug console.log statements to prevent unnecessary re-renders
 
