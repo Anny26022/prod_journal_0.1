@@ -1,7 +1,7 @@
 import React from "react";
 import { Trade } from "../types/trade";
 import { mockTrades } from "../data/mock-trades";
-import { usePortfolio } from "../utils/PortfolioContext";
+import { useTruePortfolioWithTrades } from "./use-true-portfolio-with-trades";
 import { useGlobalFilter } from "../context/GlobalFilterContext";
 import { isInGlobalFilter } from "../utils/dateFilterUtils";
 import {
@@ -47,7 +47,7 @@ const loadTrades = (): Trade[] => {
 };
 
 // Utility to recalculate all calculated fields for all trades
-function recalculateAllTrades(trades: Trade[], portfolioSize: number, getPortfolioSize?: (month: string, year: number) => number): Trade[] {
+function recalculateAllTrades(trades: Trade[], getTruePortfolioSize?: (month: string, year: number) => number): Trade[] {
   // Sort trades by date (or tradeNo as fallback) for cummPf calculation
   const sorted = [...trades].sort((a, b) => {
     if (a.date && b.date) {
@@ -68,15 +68,18 @@ function recalculateAllTrades(trades: Trade[], portfolioSize: number, getPortfol
     const totalInitialQty = allEntries.reduce((sum, e) => sum + e.qty, 0);
     const positionSize = calcPositionSize(avgEntry, totalInitialQty);
     
-    // Get the portfolio size for the trade's month/year
-    let tradePortfolioSize = portfolioSize;
-    if (trade.date && getPortfolioSize) {
+    // Get the true portfolio size for the trade's month/year
+    let tradePortfolioSize = 100000; // Default fallback
+    if (trade.date && getTruePortfolioSize) {
       const tradeDate = new Date(trade.date);
       const month = tradeDate.toLocaleString('default', { month: 'short' });
       const year = tradeDate.getFullYear();
-      const monthlyPortfolioSize = getPortfolioSize(month, year);
-      if (monthlyPortfolioSize !== undefined) {
-        tradePortfolioSize = monthlyPortfolioSize;
+      try {
+        // For recalculation, we need to calculate portfolio size without this trade's P&L
+        // We'll use a simplified approach for now and calculate it properly later
+        tradePortfolioSize = getTruePortfolioSize(month, year) || 100000;
+      } catch (error) {
+        tradePortfolioSize = 100000; // Fallback
       }
     }
     
@@ -256,8 +259,11 @@ export const useTrades = () => {
   const [statusFilter, setStatusFilter] = React.useState('');
   const [sortDescriptor, setSortDescriptor] = React.useState<SortDescriptor>({ column: 'tradeNo', direction: 'ascending' });
   const [visibleColumns, setVisibleColumns] = React.useState<string[]>(ALL_COLUMNS);
-  const { portfolioSize, getPortfolioSize } = usePortfolio();
   const { filter: globalFilter } = useGlobalFilter();
+
+  // Get true portfolio functions - this will be initialized after trades are loaded
+  const truePortfolio = useTruePortfolioWithTrades(trades);
+  const { portfolioSize, getPortfolioSize } = truePortfolio;
 
   // Load from Supabase on mount
   React.useEffect(() => {
@@ -305,10 +311,10 @@ export const useTrades = () => {
   React.useEffect(() => {
     const loadedTrades = loadTrades();
     if (loadedTrades.length > 0) {
-      setTrades(recalculateAllTrades(loadedTrades, portfolioSize, getPortfolioSize));
+      setTrades(recalculateAllTrades(loadedTrades, getPortfolioSize));
     }
     setIsLoading(false);
-  }, [portfolioSize]);
+  }, [getPortfolioSize]);
 
   // Save trades to localStorage whenever they change
   React.useEffect(() => {
@@ -321,45 +327,43 @@ export const useTrades = () => {
     }
   }, [trades]);
 
-  // Force recalculation of trades when portfolio size changes
+  // Force recalculation of trades when portfolio calculation changes
   React.useEffect(() => {
     setTrades(prevTrades => {
       if (prevTrades.length === 0) return prevTrades;
-      return recalculateAllTrades(prevTrades, portfolioSize, getPortfolioSize);
+      return recalculateAllTrades(prevTrades, getPortfolioSize);
     });
-  }, [portfolioSize]);
+  }, [getPortfolioSize]);
 
   const addTrade = React.useCallback((trade: Trade) => {
     setTrades(prev => {
-      const newTrades = recalculateAllTrades([trade, ...prev], portfolioSize, getPortfolioSize);
+      const newTrades = recalculateAllTrades([trade, ...prev], getPortfolioSize);
       upsertTrades(newTrades); // Persist to Supabase
       return newTrades;
     });
-  }, [portfolioSize, getPortfolioSize]);
+  }, [getPortfolioSize]);
 
   const updateTrade = React.useCallback((updatedTrade: Trade) => {
     setTrades(prev => {
       const newTrades = recalculateAllTrades(
         prev.map(trade => trade.id === updatedTrade.id ? updatedTrade : trade),
-        portfolioSize,
         getPortfolioSize
       );
       upsertTrades(newTrades); // Persist to Supabase
       return newTrades;
     });
-  }, [portfolioSize, getPortfolioSize]);
+  }, [getPortfolioSize]);
 
   const deleteTrade = React.useCallback((id: string) => {
     setTrades(prev => {
       const newTrades = recalculateAllTrades(
         prev.filter(trade => trade.id !== id),
-        portfolioSize,
         getPortfolioSize
       );
       upsertTrades(newTrades); // Persist to Supabase
       return newTrades;
     });
-  }, [portfolioSize, getPortfolioSize]);
+  }, [getPortfolioSize]);
 
   const filteredTrades = React.useMemo(() => {
     let result = [...trades];

@@ -21,8 +21,8 @@ import {
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { usePortfolio } from "../utils/PortfolioContext";
-import { useCapitalChanges } from "../hooks/use-capital-changes";
+import { useTruePortfolio } from "../utils/TruePortfolioContext";
+import { YearlyStartingCapitalModal } from "./YearlyStartingCapitalModal";
 import { generateId } from "../utils/helpers";
 import { useTrades } from "../hooks/use-trades";
 
@@ -44,121 +44,86 @@ interface ProfileSettingsModalProps {
 }
 
 export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({ isOpen, onOpenChange, userName, setUserName }) => {
-  const { 
-    portfolioSize, 
-    monthlyPortfolioSizes, 
-    setPortfolioSize, 
-    getPortfolioSize,
-    getLatestPortfolioSize
-  } = usePortfolio();
-  
+  const {
+    yearlyStartingCapitals,
+    setYearlyStartingCapital,
+    getYearlyStartingCapital,
+    monthlyStartingCapitalOverrides,
+    setMonthlyStartingCapitalOverride,
+    removeMonthlyStartingCapitalOverride,
+    getMonthlyStartingCapitalOverride,
+    capitalChanges,
+    addCapitalChange,
+    updateCapitalChange,
+    deleteCapitalChange,
+    portfolioSize
+  } = useTruePortfolio();
+
   const { trades } = useTrades();
-  const { 
-    capitalChanges, 
-    addCapitalChange, 
-    updateCapitalChange, 
-    deleteCapitalChange 
-  } = useCapitalChanges(trades, getLatestPortfolioSize());
   
-  const [selectedTab, setSelectedTab] = useState('capital');
-  const [globalValue, setGlobalValue] = useState(portfolioSize.toString());
+  const [selectedTab, setSelectedTab] = useState('yearly');
+  const [isYearlyCapitalModalOpen, setIsYearlyCapitalModalOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(months[new Date().getMonth()]);
   const [selectedYear, setSelectedYear] = useState(currentYear);
-  const [monthlyValue, setMonthlyValue] = useState('');
   const [editingCell, setEditingCell] = useState<{month: string, year: number} | null>(null);
   const [editValue, setEditValue] = useState('');
-  const [deletingItem, setDeletingItem] = useState<{month: string, year: number} | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [newCapitalAmount, setNewCapitalAmount] = useState('');
+  const [newCapitalType, setNewCapitalType] = useState<'deposit' | 'withdrawal'>('deposit');
+  const [newCapitalDescription, setNewCapitalDescription] = useState('');
 
-  // Update global value when portfolio size changes
-  useEffect(() => {
-    setGlobalValue(portfolioSize.toString());
-  }, [portfolioSize]);
+  // Monthly overrides state
+  const [overrideMonth, setOverrideMonth] = useState(months[new Date().getMonth()]);
+  const [overrideYear, setOverrideYear] = useState(currentYear);
+  const [overrideAmount, setOverrideAmount] = useState('');
 
-  // Update monthly value when selection changes
-  useEffect(() => {
-    const size = getPortfolioSize(selectedMonth, selectedYear);
-    setMonthlyValue(size.toString());
-  }, [selectedMonth, selectedYear, getPortfolioSize]);
-
-  const handleSaveMonthly = () => {
-    if (monthlyValue) {
-      setPortfolioSize(Number(monthlyValue), selectedMonth, selectedYear);
-      setMonthlyValue('');
+  const handleAddCapitalChange = () => {
+    const amount = parseFloat(newCapitalAmount);
+    if (isNaN(amount) || amount <= 0) {
+      alert('Please enter a valid amount');
+      return;
     }
-  };
-  
-  const handleSaveCapital = () => {
-    if (editingCell && editValue !== '') {
-      handleSaveCapitalChange(editingCell.month, editingCell.year);
-    }
-  };
 
-  const handleEditMonthly = (month: string, year: number, value: number) => {
-    setEditingCell({ month, year });
-    setEditValue(value.toString());
-  };
+    const monthIndex = months.indexOf(selectedMonth);
+    const date = new Date(selectedYear, monthIndex, 1).toISOString();
 
-  const saveEdit = () => {
-    if (editingCell && editValue) {
-      const newValue = Number(editValue);
-      if (!isNaN(newValue) && newValue >= 0) {
-        setPortfolioSize(newValue, editingCell.month, editingCell.year);
-      }
-      setEditingCell(null);
-      setEditValue('');
-    }
-  };
-
-  const handleDelete = (month: string, year: number) => {
-    setDeletingItem({ month, year });
-  };
-
-  const confirmDelete = () => {
-    if (deletingItem) {
-      setIsDeleting(true);
-      // Since setPortfolioSize is synchronous, we don't need .finally()
-      setPortfolioSize(0, deletingItem.month, deletingItem.year);
-      setIsDeleting(false);
-      setDeletingItem(null);
-    }
-  };
-
-  const cancelDelete = () => {
-    setDeletingItem(null);
-  };
-
-  const handleEditClick = (month: string, year: number, currentValue: number) => {
-    setEditingCell({ month, year });
-    
-    // Find if there's an existing capital change for this month/year
-    const existingChange = capitalChanges.find(change => {
-      const date = new Date(change.date);
-      return date.getFullYear() === year && 
-             date.toLocaleString('default', { month: 'short' }) === month;
+    addCapitalChange({
+      amount: newCapitalType === 'deposit' ? amount : -amount,
+      type: newCapitalType,
+      date,
+      description: newCapitalDescription || `${newCapitalType === 'deposit' ? 'Deposit' : 'Withdrawal'} for ${selectedMonth} ${selectedYear}`
     });
-    
-    if (existingChange) {
-      setEditValue((existingChange.amount * (existingChange.type === 'deposit' ? 1 : -1)).toString());
-    } else {
-      setEditValue('0');
-    }
+
+    setNewCapitalAmount('');
+    setNewCapitalDescription('');
   };
   
-  const handleSaveCapitalChange = (month: string, year: number) => {
+  const handleEditCapitalChange = (changeId: string) => {
+    const change = capitalChanges.find(c => c.id === changeId);
+    if (change) {
+      const date = new Date(change.date);
+      const month = date.toLocaleString('default', { month: 'short' });
+      const year = date.getFullYear();
+      setEditingCell({ month, year });
+      setEditValue((change.type === 'deposit' ? change.amount : -change.amount).toString());
+    }
+  };
+
+  const handleSaveCapitalChange = () => {
+    if (!editingCell) return;
+
     const value = Number(editValue);
     if (isNaN(value)) return;
-    
-    const monthIndex = months.indexOf(month);
-    const date = new Date(year, monthIndex, 1).toISOString();
-    
+
+    const monthIndex = months.indexOf(editingCell.month);
+    const date = new Date(editingCell.year, monthIndex, 1).toISOString();
+
     // Find existing change for this month/year
     const existingChange = capitalChanges.find(change => {
       const changeDate = new Date(change.date);
-      return changeDate.getFullYear() === year && 
+      return changeDate.getFullYear() === editingCell.year &&
              changeDate.getMonth() === monthIndex;
     });
-    
+
     if (value === 0) {
       // If value is 0, remove the change if it exists
       if (existingChange) {
@@ -167,7 +132,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({ isOp
     } else {
       const type = value > 0 ? 'deposit' : 'withdrawal';
       const amount = Math.abs(value);
-      
+
       if (existingChange) {
         // Update existing change
         updateCapitalChange({
@@ -182,22 +147,43 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({ isOp
           amount,
           type,
           date,
-          description: 'Added from settings',
-          // id will be generated in the useCapitalChanges hook
+          description: 'Added from settings'
         });
       }
     }
-    
+
     setEditingCell(null);
     setEditValue('');
   };
 
-  const sortedMonthlySizes = [...monthlyPortfolioSizes]
-    .filter(item => item.size > 0) // Only show non-zero values
-    .sort((a, b) => {
-      if (a.year !== b.year) return b.year - a.year;
-      return months.indexOf(a.month) - months.indexOf(b.month);
-    });
+  const handleAddMonthlyOverride = () => {
+    const amount = parseFloat(overrideAmount);
+    if (isNaN(amount) || amount <= 0) {
+      alert('Please enter a valid amount');
+      return;
+    }
+
+    setMonthlyStartingCapitalOverride(overrideMonth, overrideYear, amount);
+    setOverrideAmount('');
+  };
+
+  const handleRemoveMonthlyOverride = (month: string, year: number) => {
+    removeMonthlyStartingCapitalOverride(month, year);
+  };
+
+  // Sort capital changes by date (newest first)
+  const sortedCapitalChanges = [...capitalChanges].sort((a, b) =>
+    new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+
+  // Sort yearly starting capitals by year (newest first)
+  const sortedYearlyCapitals = [...yearlyStartingCapitals].sort((a, b) => b.year - a.year);
+
+  // Sort monthly overrides by year and month (newest first)
+  const sortedMonthlyOverrides = [...monthlyStartingCapitalOverrides].sort((a, b) => {
+    if (a.year !== b.year) return b.year - a.year;
+    return months.indexOf(b.month) - months.indexOf(a.month);
+  });
 
   return (
     <Modal 
@@ -208,226 +194,325 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({ isOp
       <ModalContent>
         {(onClose) => (
           <>
-            <ModalHeader className="flex flex-col gap-1">Portfolio Settings</ModalHeader>
+            <ModalHeader className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <Icon icon="lucide:settings" className="text-primary" />
+                <span>Portfolio Settings</span>
+              </div>
+            </ModalHeader>
             <ModalBody>
               <Input
                 label="Your Name"
                 value={userName}
                 onValueChange={setUserName}
                 className="mb-4"
+                startContent={<Icon icon="lucide:user" className="text-default-400" />}
               />
-              <Tabs 
+              <Tabs
                 selectedKey={selectedTab}
                 onSelectionChange={(key) => setSelectedTab(key as string)}
                 aria-label="Portfolio settings tabs"
               >
-                <Tab key="capital" title="Capital Management">
+                <Tab key="yearly" title="Yearly Starting Capital">
                   <div className="py-4 space-y-4">
-                    <p className="text-sm text-foreground-500">
-                      Manage your capital additions and withdrawals by month.
-                    </p>
-                    <div className="space-y-4">
-                      {capitalChanges.map((change) => {
-                        const date = new Date(change.date);
-                        const month = date.toLocaleString('default', { month: 'short' });
-                        const year = date.getFullYear();
-                        const isEditing = editingCell?.month === month && editingCell?.year === year;
-                        
-                        return (
-                          <div key={change.id} className="flex items-center gap-2 p-2 border rounded-lg">
-                            <div className="flex-1">
-                              <div className="font-medium">{month} {year}</div>
-                              <div className="text-sm text-foreground-500">
-                                {change.type === 'deposit' ? 'Added' : 'Withdrawn'}: ₹{Math.abs(change.amount).toLocaleString()}
-                              </div>
-                              <div className="text-xs text-foreground-400">
-                                {change.description || 'No description'}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-foreground-500">
+                          Set starting capital for January of each year. This forms the foundation for true portfolio calculations.
+                        </p>
+                      </div>
+                      <Button
+                        color="primary"
+                        onPress={() => setIsYearlyCapitalModalOpen(true)}
+                        startContent={<Icon icon="lucide:plus" />}
+                      >
+                        Manage Years
+                      </Button>
+                    </div>
+
+                    {sortedYearlyCapitals.length === 0 ? (
+                      <div className="text-center py-8 text-default-500">
+                        <Icon icon="lucide:calendar-x" className="text-4xl mb-2 mx-auto" />
+                        <p>No yearly starting capitals set yet.</p>
+                        <p className="text-sm">Click "Manage Years" to get started.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {sortedYearlyCapitals.map((yearData) => (
+                          <div
+                            key={yearData.year}
+                            className="flex items-center justify-between p-4 border border-divider rounded-lg bg-default-50 dark:bg-default-100"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="flex flex-col">
+                                <span className="font-semibold text-lg">{yearData.year}</span>
+                                <span className="text-xs text-default-500">
+                                  Updated: {new Date(yearData.updatedAt).toLocaleDateString()}
+                                </span>
                               </div>
                             </div>
-                            <div className="flex gap-2">
-                              <Button 
-                                size="sm" 
-                                variant="flat" 
-                                onPress={() => handleEditClick(month, year, change.amount * (change.type === 'deposit' ? 1 : -1))}
-                              >
-                                Edit
-                              </Button>
-                              <Button 
-                                size="sm" 
-                                variant="flat" 
-                                color="danger"
-                                onPress={() => deleteCapitalChange(change.id)}
-                              >
-                                Delete
-                              </Button>
+                            <div className="text-right">
+                              <span className="font-bold text-xl text-success">
+                                ₹{yearData.startingCapital.toLocaleString()}
+                              </span>
+                              <div className="text-xs text-default-500">Starting Capital</div>
                             </div>
                           </div>
-                        );
-                      })}
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </Tab>
+                <Tab key="capital" title="Capital Changes">
+                  <div className="py-4 space-y-4">
+                    <p className="text-sm text-foreground-500">
+                      Add deposits and withdrawals to track capital changes throughout the year.
+                    </p>
+
+                    {/* Add New Capital Change */}
+                    <div className="border border-divider rounded-lg p-4 bg-default-50 dark:bg-default-100">
+                      <h4 className="font-semibold mb-3">Add Capital Change</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <Select
+                          label="Month"
+                          selectedKeys={[selectedMonth]}
+                          onChange={(e) => setSelectedMonth(e.target.value)}
+                        >
+                          {months.map(month => (
+                            <SelectItem key={month} value={month}>
+                              {month}
+                            </SelectItem>
+                          ))}
+                        </Select>
+                        <Select
+                          label="Year"
+                          selectedKeys={[selectedYear.toString()]}
+                          onChange={(e) => setSelectedYear(Number(e.target.value))}
+                        >
+                          {years.map(year => (
+                            <SelectItem key={year} value={year.toString()}>
+                              {year}
+                            </SelectItem>
+                          ))}
+                        </Select>
+                        <Select
+                          label="Type"
+                          selectedKeys={[newCapitalType]}
+                          onChange={(e) => setNewCapitalType(e.target.value as 'deposit' | 'withdrawal')}
+                        >
+                          <SelectItem key="deposit" value="deposit">Deposit</SelectItem>
+                          <SelectItem key="withdrawal" value="withdrawal">Withdrawal</SelectItem>
+                        </Select>
+                        <Input
+                          label="Amount"
+                          type="number"
+                          value={newCapitalAmount}
+                          onValueChange={setNewCapitalAmount}
+                          min="0"
+                          step="1000"
+                          startContent={<span className="text-default-400">₹</span>}
+                        />
+                        <Input
+                          label="Description (Optional)"
+                          value={newCapitalDescription}
+                          onValueChange={setNewCapitalDescription}
+                          className="md:col-span-2"
+                        />
+                        <div className="md:col-span-2">
+                          <Button
+                            color="primary"
+                            onPress={handleAddCapitalChange}
+                            isDisabled={!newCapitalAmount}
+                            startContent={<Icon icon="lucide:plus" />}
+                          >
+                            Add {newCapitalType === 'deposit' ? 'Deposit' : 'Withdrawal'}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Existing Capital Changes */}
+                    <div>
+                      <h4 className="font-semibold mb-3">Capital Changes History</h4>
+                      {sortedCapitalChanges.length === 0 ? (
+                        <div className="text-center py-8 text-default-500">
+                          <Icon icon="lucide:banknote" className="text-4xl mb-2 mx-auto" />
+                          <p>No capital changes recorded yet.</p>
+                          <p className="text-sm">Add your first deposit or withdrawal above.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {sortedCapitalChanges.map((change) => {
+                            const date = new Date(change.date);
+                            const month = date.toLocaleString('default', { month: 'short' });
+                            const year = date.getFullYear();
+
+                            return (
+                              <div key={change.id} className="flex items-center gap-3 p-3 border border-divider rounded-lg">
+                                <div className="flex-shrink-0">
+                                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                                    change.type === 'deposit'
+                                      ? 'bg-success-100 text-success-600 dark:bg-success-900 dark:text-success-300'
+                                      : 'bg-danger-100 text-danger-600 dark:bg-danger-900 dark:text-danger-300'
+                                  }`}>
+                                    <Icon
+                                      icon={change.type === 'deposit' ? 'lucide:arrow-down' : 'lucide:arrow-up'}
+                                      className="w-5 h-5"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium">{month} {year}</span>
+                                    <span className={`text-sm px-2 py-1 rounded-full ${
+                                      change.type === 'deposit'
+                                        ? 'bg-success-100 text-success-700 dark:bg-success-900 dark:text-success-300'
+                                        : 'bg-danger-100 text-danger-700 dark:bg-danger-900 dark:text-danger-300'
+                                    }`}>
+                                      {change.type === 'deposit' ? 'Deposit' : 'Withdrawal'}
+                                    </span>
+                                  </div>
+                                  <div className="text-sm text-default-500 mt-1">
+                                    {change.description || 'No description'}
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className={`font-bold text-lg ${
+                                    change.type === 'deposit' ? 'text-success' : 'text-danger'
+                                  }`}>
+                                    {change.type === 'deposit' ? '+' : '-'}₹{Math.abs(change.amount).toLocaleString()}
+                                  </div>
+                                  <div className="flex gap-1 mt-1">
+                                    <Button
+                                      size="sm"
+                                      variant="flat"
+                                      onPress={() => handleEditCapitalChange(change.id)}
+                                      startContent={<Icon icon="lucide:edit" className="w-3 h-3" />}
+                                    >
+                                      Edit
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="flat"
+                                      color="danger"
+                                      onPress={() => deleteCapitalChange(change.id)}
+                                      startContent={<Icon icon="lucide:trash" className="w-3 h-3" />}
+                                    >
+                                      Delete
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </Tab>
-                <Tab key="monthly" title="Monthly Settings">
+                <Tab key="monthly" title="Monthly Overrides">
                   <div className="py-4 space-y-4">
                     <p className="text-sm text-foreground-500">
-                      Set custom portfolio sizes for specific months. These will override the default value.
+                      Override starting capital for specific months. This allows you to manually set the starting capital for any month, overriding the automatic calculation.
                     </p>
-                    <div className="flex gap-2 items-end">
-                      <Select
-                        label="Month"
-                        selectedKeys={[selectedMonth]}
-                        onChange={(e) => setSelectedMonth(e.target.value)}
-                        className="min-w-[120px]"
-                      >
-                        {months.map(month => (
-                          <SelectItem key={month}>
-                            {month}
-                          </SelectItem>
-                        ))}
-                      </Select>
-                      <Select
-                        label="Year"
-                        selectedKeys={[selectedYear.toString()]}
-                        onChange={(e) => setSelectedYear(Number(e.target.value))}
-                        className="min-w-[120px]"
-                      >
-                        {years.map(year => (
-                          <SelectItem key={year}>
-                            {year}
-                          </SelectItem>
-                        ))}
-                      </Select>
-                      <Input
-                        label="Portfolio Size"
-                        type="number"
-                        value={monthlyValue}
-                        onValueChange={setMonthlyValue}
-                        min={0}
-                        startContent={<span className="text-default-400">₹</span>}
-                        className="flex-1"
-                      />
-                      <Button color="primary" onPress={handleSaveMonthly}>
-                        Set
-                      </Button>
-                    </div>
-                    
-                    <div className="mt-6">
-                      <h4 className="text-sm font-medium mb-2">Monthly Portfolio Sizes</h4>
-                      <div className="border rounded-lg overflow-hidden">
-                        <Table aria-label="Monthly portfolio sizes" removeWrapper>
-                          <TableHeader>
-                            <TableColumn className="w-1/4">Month</TableColumn>
-                            <TableColumn className="w-1/4">Year</TableColumn>
-                            <TableColumn className="w-1/3">Portfolio Size</TableColumn>
-                            <TableColumn className="w-1/6 text-right">Actions</TableColumn>
-                          </TableHeader>
-                          <TableBody>
-                            {sortedMonthlySizes.length > 0 ? (
-                              sortedMonthlySizes.map((item) => (
-                                <TableRow 
-                                  key={`${item.month}-${item.year}`}
-                                  className="group hover:bg-default-50 dark:hover:bg-default-800 transition-colors cursor-pointer"
-                                  onClick={() => {
-                                    setEditingCell({ month: item.month, year: item.year });
-                                    setEditValue(item.size.toString());
-                                  }}
-                                >
-                                  <TableCell className="font-medium">{item.month}</TableCell>
-                                  <TableCell>{item.year}</TableCell>
-                                  <TableCell>
-                                    {editingCell?.month === item.month && editingCell?.year === item.year ? (
-                                      <div className="flex items-center gap-2">
-                                        <Input
-                                          type="number"
-                                          value={editValue}
-                                          onValueChange={setEditValue}
-                                          min={0}
-                                          size="sm"
-                                          className="w-32"
-                                          startContent={<span className="text-xs">₹</span>}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter') saveEdit();
-                                            if (e.key === 'Escape') setEditingCell(null);
-                                          }}
-                                          onClick={(e) => e.stopPropagation()}
-                                          onFocus={(e) => e.target.select()}
-                                          autoFocus
-                                        />
-                                        <div className="flex gap-1">
-                                          <Tooltip content="Save">
-                                            <Button 
-                                              size="sm" 
-                                              variant="flat" 
-                                              isIconOnly 
-                                              onPress={saveEdit}
-                                              onClick={(e) => e.stopPropagation()}
-                                            >
-                                              <Icon icon="lucide:check" className="h-4 w-4" />
-                                            </Button>
-                                          </Tooltip>
-                                          <Tooltip content="Cancel">
-                                            <Button 
-                                              size="sm" 
-                                              variant="flat" 
-                                              isIconOnly 
-                                              onPress={() => setEditingCell(null)}
-                                              onClick={(e) => e.stopPropagation()}
-                                            >
-                                              <Icon icon="lucide:x" className="h-4 w-4" />
-                                            </Button>
-                                          </Tooltip>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <div className="flex items-center justify-between">
-                                        <span className="font-medium">₹{item.size.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                                        <div className="opacity-0 group-hover:opacity-100 flex gap-1">
-                                          <Tooltip content="Edit">
-                                            <Button 
-                                              size="sm" 
-                                              variant="light" 
-                                              isIconOnly 
-                                              onPress={() => handleEditClick(item.month, item.year, item.size)}
-                                              className="text-foreground-500 hover:text-foreground-800 dark:hover:text-foreground-300"
-                                            >
-                                              <Icon icon="lucide:edit-2" className="h-4 w-4" />
-                                            </Button>
-                                          </Tooltip>
-                                        </div>
-                                      </div>
-                                    )}
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    <div className="flex justify-end">
-                                      <Tooltip content="Delete">
-                                        <Button 
-                                          size="sm" 
-                                          variant="light" 
-                                          color="danger" 
-                                          isIconOnly
-                                          onPress={() => {
-                                            handleDelete(item.month, item.year);
-                                          }}
-                                          className="opacity-0 group-hover:opacity-100 transition-opacity"
-                                          isLoading={isDeleting && deletingItem?.month === item.month && deletingItem?.year === item.year}
-                                        >
-                                          <Icon icon="lucide:trash-2" className="h-4 w-4" />
-                                        </Button>
-                                      </Tooltip>
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              ))
-                            ) : (
-                              <TableRow>
-                                <TableCell colSpan={4} className="text-center py-4 text-foreground-500">
-                                  No custom monthly portfolio sizes set
-                                </TableCell>
-                              </TableRow>
-                            )}
-                          </TableBody>
-                        </Table>
+
+                    {/* Add New Monthly Override */}
+                    <div className="border border-divider rounded-lg p-4 bg-default-50 dark:bg-default-100">
+                      <h4 className="font-semibold mb-3">Add Monthly Override</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <Select
+                          label="Month"
+                          selectedKeys={[overrideMonth]}
+                          onChange={(e) => setOverrideMonth(e.target.value)}
+                        >
+                          {months.map(month => (
+                            <SelectItem key={month} value={month}>
+                              {month}
+                            </SelectItem>
+                          ))}
+                        </Select>
+                        <Select
+                          label="Year"
+                          selectedKeys={[overrideYear.toString()]}
+                          onChange={(e) => setOverrideYear(Number(e.target.value))}
+                        >
+                          {years.map(year => (
+                            <SelectItem key={year} value={year.toString()}>
+                              {year}
+                            </SelectItem>
+                          ))}
+                        </Select>
+                        <Input
+                          label="Starting Capital"
+                          type="number"
+                          value={overrideAmount}
+                          onValueChange={setOverrideAmount}
+                          min="0"
+                          step="1000"
+                          startContent={<span className="text-default-400">₹</span>}
+                        />
+                        <div className="md:col-span-3">
+                          <Button
+                            color="primary"
+                            onPress={handleAddMonthlyOverride}
+                            isDisabled={!overrideAmount}
+                            startContent={<Icon icon="lucide:calendar-plus" />}
+                          >
+                            Set Monthly Override
+                          </Button>
+                        </div>
                       </div>
+                    </div>
+
+                    {/* Existing Monthly Overrides */}
+                    <div>
+                      <h4 className="font-semibold mb-3">Monthly Overrides</h4>
+                      {sortedMonthlyOverrides.length === 0 ? (
+                        <div className="text-center py-8 text-default-500">
+                          <Icon icon="lucide:calendar-check" className="text-4xl mb-2 mx-auto" />
+                          <p>No monthly overrides set yet.</p>
+                          <p className="text-sm">Add an override above to manually set starting capital for specific months.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {sortedMonthlyOverrides.map((override) => (
+                            <div key={override.id} className="flex items-center gap-3 p-3 border border-divider rounded-lg">
+                              <div className="flex-shrink-0">
+                                <div className="w-10 h-10 rounded-full flex items-center justify-center bg-primary-100 text-primary-600 dark:bg-primary-900 dark:text-primary-300">
+                                  <Icon icon="lucide:calendar" className="w-5 h-5" />
+                                </div>
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">{override.month} {override.year}</span>
+                                  <span className="text-sm px-2 py-1 rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-300">
+                                    Override
+                                  </span>
+                                </div>
+                                <div className="text-sm text-default-500 mt-1">
+                                  Updated: {new Date(override.updatedAt).toLocaleDateString()}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="font-bold text-lg text-primary">
+                                  ₹{override.startingCapital.toLocaleString()}
+                                </div>
+                                <div className="flex gap-1 mt-1">
+                                  <Button
+                                    size="sm"
+                                    variant="flat"
+                                    color="danger"
+                                    onPress={() => handleRemoveMonthlyOverride(override.month, override.year)}
+                                    startContent={<Icon icon="lucide:trash" className="w-3 h-3" />}
+                                  >
+                                    Remove
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </Tab>
@@ -438,43 +523,12 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({ isOp
                 Close
               </Button>
             </ModalFooter>
-            
-            {/* Delete Confirmation Dialog */}
-            <AnimatePresence>
-              {deletingItem && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    className="bg-background dark:bg-default-100 p-6 rounded-lg shadow-lg max-w-sm w-full mx-4"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <h3 className="text-lg font-semibold mb-2">Delete Portfolio Size</h3>
-                    <p className="text-foreground-600 dark:text-foreground-400 mb-6">
-                      Are you sure you want to delete the portfolio size for {deletingItem.month} {deletingItem.year}?
-                      This action cannot be undone.
-                    </p>
-                    <div className="flex justify-end gap-3">
-                      <Button 
-                        variant="flat" 
-                        onPress={cancelDelete}
-                        isDisabled={isDeleting}
-                      >
-                        Cancel
-                      </Button>
-                      <Button 
-                        color="danger" 
-                        onPress={confirmDelete}
-                        isLoading={isDeleting}
-                      >
-                        {isDeleting ? 'Deleting...' : 'Delete'}
-                      </Button>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
-            </AnimatePresence>
+
+            {/* Yearly Starting Capital Modal */}
+            <YearlyStartingCapitalModal
+              isOpen={isYearlyCapitalModalOpen}
+              onOpenChange={setIsYearlyCapitalModalOpen}
+            />
           </>
         )}
       </ModalContent>

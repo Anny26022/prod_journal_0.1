@@ -39,7 +39,7 @@ import {
   calcUnrealizedPL,
   calcRealizedPL_FIFO
 } from "../utils/tradeCalculations";
-import { usePortfolio } from "../utils/PortfolioContext";
+import { useTruePortfolioWithTrades } from "../hooks/use-true-portfolio-with-trades";
 import { useTrades } from "../hooks/use-trades";
 import { validateTrade, TradeIssue } from "../utils/tradeValidations";
 
@@ -238,8 +238,8 @@ import { validateTrade, TradeIssue } from "../utils/tradeValidations";
         handleChange('cmp', latestPrice.close);
       }
     }, [latestPrice]);
-    const { portfolioSize, getPortfolioSize } = usePortfolio();
     const { trades } = useTrades();
+    const { portfolioSize, getPortfolioSize } = useTruePortfolioWithTrades(trades);
     // Reset form when symbol changes
     React.useEffect(() => {
       if (initialSymbol && mode === 'add') {

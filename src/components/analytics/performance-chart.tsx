@@ -11,8 +11,7 @@ import {
 } from "recharts";
 import { motion } from "framer-motion";
 import { Trade } from "../../types/trade";
-import { usePortfolio } from "../../utils/PortfolioContext";
-import { useCapitalChanges } from "../../hooks/use-capital-changes";
+import { useTruePortfolioWithTrades } from "../../hooks/use-true-portfolio-with-trades";
 
 export interface ChartDataPoint {
   month: string;
@@ -34,16 +33,16 @@ function getMonthYear(dateStr: string) {
 
 export const PerformanceChart: React.FC<PerformanceChartProps> = (props) => {
   const { trades, onDataUpdate } = props;
-  const { getPortfolioSize } = usePortfolio();
-  const { monthlyCapital, capitalChanges } = useCapitalChanges(trades, 0);
+  const { getPortfolioSize, getAllMonthlyTruePortfolios } = useTruePortfolioWithTrades(trades);
+  const monthlyPortfolios = getAllMonthlyTruePortfolios();
   
   // Get the earliest and latest trade dates to determine the date range
   const sortedTrades = [...trades].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   const startDate = sortedTrades[0]?.date ? new Date(sortedTrades[0].date) : new Date();
   const endDate = trades.length > 0 ? new Date(trades[trades.length - 1].date) : new Date();
   
-  // Use monthlyCapital data which already accounts for capital changes and P/L
-  const processedChartData = monthlyCapital.map(monthData => ({
+  // Use monthlyPortfolios data which already accounts for capital changes and P/L
+  const processedChartData = monthlyPortfolios.map(monthData => ({
     month: `${monthData.month} ${monthData.year}`,
     capital: monthData.finalCapital,
     pl: monthData.pl,

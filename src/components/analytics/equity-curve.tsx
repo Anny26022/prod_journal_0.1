@@ -15,9 +15,8 @@ import {
 } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { calcXIRR } from '../../utils/tradeCalculations';
-import { useCapitalChanges } from '../../hooks/use-capital-changes';
 import { useTrades } from '../../hooks/use-trades';
-import { usePortfolio } from '../../utils/PortfolioContext';
+import { useTruePortfolioWithTrades } from '../../hooks/use-true-portfolio-with-trades';
 
 // Register ChartJS components
 ChartJS.register(
@@ -50,8 +49,8 @@ const dateRanges: DateRange[] = [
 
 export const EquityCurve: React.FC = () => {
   const { trades } = useTrades();
-  const { portfolioSize } = usePortfolio();
-  const { monthlyCapital, capitalChanges } = useCapitalChanges(trades, portfolioSize);
+  const { portfolioSize, getAllMonthlyTruePortfolios } = useTruePortfolioWithTrades(trades);
+  const monthlyPortfolios = getAllMonthlyTruePortfolios();
   const [selectedRange, setSelectedRange] = React.useState<string>('1M');
   const [xirrValue, setXirrValue] = React.useState<number>(0);
 
@@ -86,7 +85,7 @@ export const EquityCurve: React.FC = () => {
     }
 
     return { start, end: now };
-  }, [selectedRange, trades, capitalChanges]);
+  }, [selectedRange, trades, monthlyPortfolios]);
 
   // Calculate equity curve data points
   const calculateEquityCurve = React.useCallback(() => {
@@ -104,14 +103,16 @@ export const EquityCurve: React.FC = () => {
           amount: t.plRs || 0,
           type: 'trade' as const
         })),
-      ...capitalChanges
-        .filter(c => {
-          const date = new Date(c.date);
-          return date >= start && date <= end;
+      // Capital changes are now integrated into monthly portfolios
+      // We'll use the monthly portfolio data to get capital changes
+      ...monthlyPortfolios
+        .filter(mp => {
+          const monthDate = new Date(mp.year, ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].indexOf(mp.month), 1);
+          return monthDate >= start && monthDate <= end && mp.capitalChanges !== 0;
         })
-        .map(c => ({
-          date: new Date(c.date),
-          amount: c.type === 'deposit' ? c.amount : -c.amount,
+        .map(mp => ({
+          date: new Date(mp.year, ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].indexOf(mp.month), 1),
+          amount: mp.capitalChanges,
           type: 'capital' as const
         }))
     ].sort((a, b) => a.date.getTime() - b.date.getTime());
@@ -145,7 +146,7 @@ export const EquityCurve: React.FC = () => {
     setXirrValue(xirrResult);
 
     return dataPoints;
-  }, [getDateRange, trades, capitalChanges, portfolioSize]);
+  }, [getDateRange, trades, monthlyPortfolios, portfolioSize]);
 
   const chartData = React.useMemo(() => {
     const dataPoints = calculateEquityCurve();

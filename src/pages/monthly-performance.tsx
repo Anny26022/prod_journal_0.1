@@ -3,8 +3,7 @@ import { Table, TableHeader, TableColumn, TableBody, TableRow, TableCell, Toolti
 import { Icon } from "@iconify/react";
 import { motion } from "framer-motion";
 import { useTrades } from "../hooks/use-trades";
-import { usePortfolio } from "../utils/PortfolioContext";
-import { useCapitalChanges } from "../hooks/use-capital-changes";
+import { useTruePortfolioWithTrades } from "../hooks/use-true-portfolio-with-trades";
 import { calcXIRR } from "../utils/tradeCalculations";
 
 interface MonthlyData {
@@ -32,15 +31,30 @@ interface MonthlyData {
 
 export const MonthlyPerformanceTable: React.FC = () => {
   const { trades } = useTrades();
-  const { getPortfolioSize, setPortfolioSize, getLatestPortfolioSize, monthlyPortfolioSizes } = usePortfolio();
-  
+  const {
+    portfolioSize,
+    getPortfolioSize,
+    getAllMonthlyTruePortfolios,
+    yearlyStartingCapitals,
+    setYearlyStartingCapital,
+    setMonthlyStartingCapitalOverride,
+    removeMonthlyStartingCapitalOverride,
+    getMonthlyStartingCapitalOverride,
+    capitalChanges,
+    addCapitalChange,
+    updateCapitalChange,
+    deleteCapitalChange
+  } = useTruePortfolioWithTrades(trades);
+
   // Debug: Log trades data
   React.useEffect(() => {
     console.log('Total trades loaded:', trades.length);
     console.log('Trades sample:', trades.slice(0, 3)); // First 3 trades
   }, safeDeps([trades]));
-  const { monthlyCapital, capitalChanges, addCapitalChange, updateCapitalChange, setMonthlyStartingCapital, deleteCapitalChange } = useCapitalChanges(trades, getLatestPortfolioSize());
-  const [yearlyStartingCapital, setYearlyStartingCapital] = React.useState(getLatestPortfolioSize());
+
+  // Get all monthly portfolio data
+  const monthlyPortfolios = getAllMonthlyTruePortfolios();
+  const [yearlyStartingCapital, setYearlyStartingCapitalState] = React.useState(portfolioSize);
 
   // Inline editing state
   const [editingCell, setEditingCell] = React.useState<{ row: number; col: string } | null>(null);
@@ -76,8 +90,8 @@ export const MonthlyPerformanceTable: React.FC = () => {
     monthData.trades.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   });
 
-  // Filter or map all table logic to use selectedYear
-  const filteredMonthlyCapital = monthlyCapital.filter(mc => mc.year === selectedYear);
+  // Filter monthly portfolios for selected year
+  const filteredMonthlyPortfolios = monthlyPortfolios.filter(mp => mp.year === selectedYear);
 
   // Build monthly data for the selected year
   const initialMonthlyData = monthOrder.map((month, i) => {
@@ -97,13 +111,12 @@ export const MonthlyPerformanceTable: React.FC = () => {
 
     const avgHoldingDays = tradesCount > 0 ? monthTrades.reduce((sum, t) => sum + (t.holdingDays || 0), 0) / tradesCount : 0;
 
-    // Find corresponding monthly capital data
-    const monthCapital = filteredMonthlyCapital.find(mc => mc.month === month) || {
+    // Find corresponding monthly portfolio data
+    const monthPortfolio = filteredMonthlyPortfolios.find(mp => mp.month === month) || {
       month,
       year: selectedYear,
       startingCapital: 0,
-      deposits: 0,
-      withdrawals: 0,
+      capitalChanges: 0,
       pl: 0,
       finalCapital: 0
     };
@@ -121,22 +134,22 @@ export const MonthlyPerformanceTable: React.FC = () => {
       netAddedWithdrawn += change.type === 'deposit' ? change.amount : -change.amount;
     });
 
-    // If no capital changes, fall back to the monthly capital data
+    // If no capital changes, use the portfolio data
     if (monthCapitalChanges.length === 0) {
-      netAddedWithdrawn = monthCapital.deposits - monthCapital.withdrawals;
+      netAddedWithdrawn = monthPortfolio.capitalChanges;
     }
 
     // For months with no trades, show '-' for most stats and set finalCapital to 0
-    // Use the starting capital from monthlyCapital which includes the net deposits/withdrawals
-    const adjustedStartingCapital = monthCapital.startingCapital || getPortfolioSize(month, selectedYear);
+    // Use the starting capital from monthPortfolio which includes the net deposits/withdrawals
+    const adjustedStartingCapital = monthPortfolio.startingCapital || getPortfolioSize(month, selectedYear);
     
     return {
       month,
       addedWithdrawn: netAddedWithdrawn,
       startingCapital: adjustedStartingCapital,
-      pl: tradesCount > 0 ? monthCapital.pl : '-',
+      pl: tradesCount > 0 ? monthPortfolio.pl : '-',
       plPercentage: tradesCount > 0 ? 0 : '-',
-      finalCapital: tradesCount > 0 ? monthCapital.finalCapital : 0,
+      finalCapital: tradesCount > 0 ? monthPortfolio.finalCapital : 0,
       yearPlPercentage: '',
       trades: tradesCount > 0 ? tradesCount : '-',
       winPercentage: tradesCount > 0 ? winPercentage : '-',
@@ -156,8 +169,8 @@ export const MonthlyPerformanceTable: React.FC = () => {
 
   // Effect to update yearly starting capital when portfolio size changes
   React.useEffect(() => {
-    setYearlyStartingCapital(getLatestPortfolioSize());
-  }, safeDeps([getLatestPortfolioSize]));
+    setYearlyStartingCapitalState(portfolioSize);
+  }, safeDeps([portfolioSize]));
 
   const computedData = React.useMemo(() => {
     const currentYear = selectedYear; // Use the selected year instead of current year
@@ -326,9 +339,7 @@ export const MonthlyPerformanceTable: React.FC = () => {
       const newAmount = value; // value can be positive or negative
       const difference = newAmount - oldAmount;
       
-      // Update the portfolio size by the difference
-      const newPortfolioSize = currentPortfolioSize + difference;
-      setPortfolioSize(newPortfolioSize, month, year);
+      // Note: Portfolio size is now calculated automatically from true portfolio logic
       
       // Update the capital change
       updateCapitalChange({
@@ -340,9 +351,7 @@ export const MonthlyPerformanceTable: React.FC = () => {
       });
     } else if (value !== 0) {
       // Only add if value is not zero
-      // Update the portfolio size by the new amount
-      const newPortfolioSize = currentPortfolioSize + value;
-      setPortfolioSize(newPortfolioSize, month, year);
+      // Note: Portfolio size is now calculated automatically from true portfolio logic
       
       // Add new capital change
       addCapitalChange({
@@ -353,12 +362,7 @@ export const MonthlyPerformanceTable: React.FC = () => {
       });
     } else if (value === 0 && existingChange) {
       // If setting to zero and there's an existing change, remove it
-      // and adjust the portfolio size back
-      const oldAmount = existingChange.type === 'deposit' 
-        ? existingChange.amount 
-        : -existingChange.amount;
-      const newPortfolioSize = currentPortfolioSize - oldAmount;
-      setPortfolioSize(newPortfolioSize, month, year);
+      // Note: Portfolio size is now calculated automatically from true portfolio logic
       
       // Delete the existing change
       deleteCapitalChange(existingChange.id);
@@ -366,6 +370,21 @@ export const MonthlyPerformanceTable: React.FC = () => {
     
     setEditingCell(null);
     setEditingValue("");
+  };
+
+  const handleSaveStartingCapital = (rowIndex: number, month: string, year: number) => {
+    const value = parseFloat(editingValue);
+    if (isNaN(value) || value < 0) {
+      setEditingCell(null);
+      setEditingValue('');
+      return;
+    }
+
+    // Set monthly starting capital override
+    setMonthlyStartingCapitalOverride(month, year, value);
+
+    setEditingCell(null);
+    setEditingValue('');
   };
 
   const columns = [
@@ -385,11 +404,11 @@ export const MonthlyPerformanceTable: React.FC = () => {
           <Tooltip content={
         <div className="max-w-xs text-xs p-1">
           <div>Capital at the start of the month, before trades and capital changes.</div>
-          <div className="mt-2 font-semibold">Formula:</div>
-          <div>Previous Month's Final Capital + Net Capital Changes</div>
-          <div className="text-foreground-400 mt-1">Where:</div>
-          <div>• Previous Month's Final Capital = Starting Capital + P/L + (Added - Withdrawn)</div>
-          <div>• Net Capital Changes = Sum of all deposits - Sum of all withdrawals</div>
+          <div className="mt-2 font-semibold">Calculation Priority:</div>
+          <div>1. Manual Override (if set)</div>
+          <div>2. January: Yearly starting capital</div>
+          <div>3. Other months: Previous month's final capital</div>
+          <div className="text-foreground-400 mt-2">Click to edit or manage in Portfolio Settings</div>
         </div>
       } placement="top">
             <Icon icon="lucide:info" className="text-base text-foreground-400 cursor-pointer" />
@@ -659,8 +678,8 @@ export const MonthlyPerformanceTable: React.FC = () => {
       const item = computedData[rowIndex];
       if (!item) return;
       const month = item.month;
-      const monthCapital = monthlyCapital.find(mc => mc.month === month);
-      const year = monthCapital ? monthCapital.year : new Date().getFullYear();
+      const monthPortfolio = filteredMonthlyPortfolios.find(mp => mp.month === month);
+      const year = monthPortfolio ? monthPortfolio.year : selectedYear;
       const existingChange = capitalChanges.find(change => {
         const d = new Date(change.date);
         return d.getMonth() === monthOrder.indexOf(month) && d.getFullYear() === year;
@@ -672,8 +691,30 @@ export const MonthlyPerformanceTable: React.FC = () => {
         setEditingValue('');
       }
     }
+
+    // Handle starting capital editing
+    if (
+      editingCell &&
+      editingCell.col === 'startingCapital' &&
+      (prevEditingCell.current?.row !== editingCell.row || prevEditingCell.current?.col !== editingCell.col)
+    ) {
+      const rowIndex = editingCell.row;
+      const item = computedData[rowIndex];
+      if (!item) return;
+      const month = item.month;
+
+      // Check if there's a monthly override for this month
+      const override = getMonthlyStartingCapitalOverride(month, selectedYear);
+      if (override !== null) {
+        setEditingValue(String(override));
+      } else {
+        // Use the current calculated starting capital
+        setEditingValue(String(item.startingCapital));
+      }
+    }
+
     prevEditingCell.current = editingCell;
-  }, safeDeps([editingCell, computedData, capitalChanges, monthlyCapital]));
+  }, safeDeps([editingCell, computedData, capitalChanges, filteredMonthlyPortfolios, getMonthlyStartingCapitalOverride, selectedYear]));
 
   return (
     <div className="flex flex-col gap-6">
@@ -681,9 +722,9 @@ export const MonthlyPerformanceTable: React.FC = () => {
         <div className="flex items-start gap-2">
           <Icon icon="lucide:info" className="text-blue-500 mt-0.5 flex-shrink-0" />
           <div>
-            <p className="font-medium text-blue-800 dark:text-white">Important Note:</p>
+            <p className="font-medium text-blue-800 dark:text-white">Portfolio Management:</p>
             <p className="text-sm text-blue-700 dark:text-gray-200">
-              Please ensure you set the <span className="font-semibold">Starting Capital</span> for each month before making any changes to the <span className="font-semibold">Added/Withdrawn</span> field. The Starting Capital is used as the base for all calculations.
+              You can edit <span className="font-semibold">Starting Capital</span> and <span className="font-semibold">Added/Withdrawn</span> directly in this table, or manage them through <span className="font-semibold">Portfolio Settings</span> (profile icon). Both places stay in sync automatically.
             </p>
           </div>
         </div>
@@ -845,9 +886,8 @@ export const MonthlyPerformanceTable: React.FC = () => {
                   }
                   
                   if (columnKey === 'startingCapital') {
-                    const hasCustomSize = monthlyPortfolioSizes.some(
-                      (size) => size.month === item.month && size.year === selectedYear && size.size > 0
-                    );
+                    // For now, we'll consider all starting capitals as "custom" since they're calculated from true portfolio logic
+                    const hasCustomSize = false;
                     
                     if (isEditing) {
                       return (
@@ -859,22 +899,10 @@ export const MonthlyPerformanceTable: React.FC = () => {
                               variant="bordered"
                               value={editingValue}
                               onChange={e => setEditingValue(e.target.value)}
-                              onBlur={() => {
-                                const val = Number(editingValue);
-                                if (!isNaN(val) && val >= 0) {
-                                  setPortfolioSize(val, item.month, selectedYear);
-                                }
-                                setEditingCell(null);
-                                setEditingValue("");
-                              }}
+                              onBlur={() => handleSaveStartingCapital(rowIndex, item.month, selectedYear)}
                               onKeyDown={e => {
                                 if (e.key === 'Enter') {
-                                  const val = Number(editingValue);
-                                  if (!isNaN(val) && val >= 0) {
-                                    setPortfolioSize(val, item.month, selectedYear);
-                                  }
-                                  setEditingCell(null);
-                                  setEditingValue("");
+                                  handleSaveStartingCapital(rowIndex, item.month, selectedYear);
                                 } else if (e.key === 'Escape') {
                                   setEditingCell(null);
                                   setEditingValue("");
@@ -894,14 +922,7 @@ export const MonthlyPerformanceTable: React.FC = () => {
                                 isIconOnly
                                 size="sm"
                                 variant="light"
-                                onPress={() => {
-                                  const val = Number(editingValue);
-                                  if (!isNaN(val) && val >= 0) {
-                                    setPortfolioSize(val, item.month, selectedYear);
-                                  }
-                                  setEditingCell(null);
-                                  setEditingValue("");
-                                }}
+                                onPress={() => handleSaveStartingCapital(rowIndex, item.month, selectedYear)}
                               >
                                 <Icon icon="lucide:check" className="h-4 w-4 text-success-500" />
                               </Button>

@@ -31,7 +31,7 @@ import { TradeModal } from "./trade-modal";
 import { DeleteConfirmModal } from "./delete-confirm-modal";
 import { useTrades, SortDescriptor } from "../hooks/use-trades";
 import { format } from 'date-fns';
-import { usePortfolio } from "../utils/PortfolioContext";
+import { useTruePortfolioWithTrades } from "../hooks/use-true-portfolio-with-trades";
 import { tableRowVariants, springTransition } from "../utils/animations";
 import { calcSLPercent, calcHoldingDays, calcUnrealizedPL, calcRealizedPL_FIFO, calcOpenHeat, calcIndividualMoves } from "../utils/tradeCalculations";
 import { fetchPriceTicks } from '../utils/priceTickApi';
@@ -124,7 +124,7 @@ export const TradeJournal = React.memo(function TradeJournal({
     setVisibleColumns
   } = useTrades();
   
-  const { portfolioSize, getPortfolioSize } = usePortfolio();
+  const { portfolioSize, getPortfolioSize } = useTruePortfolioWithTrades(trades);
   
   // Memoize filtered and sorted trades
   const processedTrades = useMemo(() => {
@@ -1362,7 +1362,7 @@ export const TradeJournal = React.memo(function TradeJournal({
                     Status: {statusFilter || "All"}
                   </Button>
                 </DropdownTrigger>
-                <DropdownMenu 
+                <DropdownMenu
                   aria-label="Status filter"
                   className="dark:bg-gray-900"
                   selectionMode="single"
@@ -1642,8 +1642,8 @@ export const TradeJournal = React.memo(function TradeJournal({
             </TableHeader>
             <TableBody items={items} isLoading={isLoading} emptyContent={isLoading ? " " : "No trades found. Add your first trade!"}>
               {(item) => (
-                <TableRow 
-                  key={item.id} 
+                <TableRow
+                  key={item.id}
                   className="hover:bg-default-50 dark:hover:bg-gray-800 dark:bg-gray-900"
                 >
                   {headerColumns.map((column) => (
@@ -1715,7 +1715,7 @@ interface StatsCardProps {
   color: "primary" | "success" | "warning" | "danger";
 }
 
-const StatsCard: React.FC<StatsCardProps> = React.memo(({ title, value, icon, color }) => {
+const StatsCard: React.FC<StatsCardProps> = React.memo(function StatsCard({ title, value, icon, color }) {
   const getColors = () => {
     switch (color) {
       case "primary":
@@ -1819,15 +1819,15 @@ interface EditableCellProps {
   options?: string[];
 }
 
-const EditableCell: React.FC<EditableCellProps> = React.memo(({ 
-  value, 
-  onSave, 
-  type = "text", 
+const EditableCell: React.FC<EditableCellProps> = React.memo(function EditableCell({
+  value,
+  onSave,
+  type = "text",
   colorValue = false,
   min,
   max,
   options
-}) => {
+}) {
   const [isEditing, setIsEditing] = React.useState(false);
   
   // Format date as dd-mm-yyyy for display and editing
@@ -2028,7 +2028,7 @@ interface BuySellCellProps {
   onSave: (value: "Buy" | "Sell") => void;
 }
 
-const BuySellCell: React.FC<BuySellCellProps> = ({ value, onSave }) => {
+const BuySellCell: React.FC<BuySellCellProps> = React.memo(function BuySellCell({ value, onSave }) {
   return (
     <Dropdown>
       <DropdownTrigger>
@@ -2056,14 +2056,14 @@ const BuySellCell: React.FC<BuySellCellProps> = ({ value, onSave }) => {
       </DropdownMenu>
     </Dropdown>
   );
-};
+});
 
 interface PositionStatusCellProps {
   value: "Open" | "Closed" | "Partial";
   onSave: (value: "Open" | "Closed" | "Partial") => void;
 }
 
-const PositionStatusCell: React.FC<PositionStatusCellProps> = ({ value, onSave }) => {
+const PositionStatusCell: React.FC<PositionStatusCellProps> = React.memo(function PositionStatusCell({ value, onSave }) {
   return (
     <Dropdown>
       <DropdownTrigger>
@@ -2095,7 +2095,7 @@ const PositionStatusCell: React.FC<PositionStatusCellProps> = ({ value, onSave }
       </DropdownMenu>
     </Dropdown>
   );
-};
+});
 
 interface ProficiencyGrowthAreasCellProps {
   value: string;
@@ -2189,7 +2189,7 @@ interface NameCellProps {
   onSave: (value: string) => void;
 }
 
-const NameCell: React.FC<NameCellProps> = React.memo(({ value, onSave }) => {
+const NameCell: React.FC<NameCellProps> = React.memo(function NameCell({ value, onSave }) {
   const [isEditing, setIsEditing] = React.useState(false);
   const [editValue, setEditValue] = React.useState(value);
   const [showDropdown, setShowDropdown] = React.useState(false);
@@ -2446,7 +2446,7 @@ const SETUP_OPTIONS = [
 ];
 const SETUP_LOCAL_KEY = 'custom_setup_options';
 
-const SetupCell: React.FC<SetupCellProps> = React.memo(({ value, onSave }) => {
+const SetupCell: React.FC<SetupCellProps> = React.memo(function SetupCell({ value, onSave }) {
   const [options, setOptions] = React.useState<string[]>([...SETUP_OPTIONS]);
 
   React.useEffect(() => {
@@ -2461,14 +2461,14 @@ const SetupCell: React.FC<SetupCellProps> = React.memo(({ value, onSave }) => {
 
   const handleSelect = (selected: string) => {
     if (selected === '__add_new__') {
-      const newValue = window.prompt('Enter new setup name:');
+      const newValue = window.prompt('Enter new setup:');
       if (newValue && !options.some(o => o.toLowerCase() === newValue.toLowerCase())) {
         const newOptions = [...options, newValue];
         setOptions(newOptions);
         upsertMiscData(SETUP_LOCAL_KEY, newOptions.filter(o => !SETUP_OPTIONS.includes(o)));
         onSave(newValue);
       } else if (newValue) {
-        onSave(newValue); // If already exists, just select it
+        onSave(newValue);
       }
     } else {
       onSave(selected);
@@ -2527,7 +2527,7 @@ const EXIT_TRIGGER_OPTIONS = [
 ];
 const EXIT_TRIGGER_LOCAL_KEY = 'custom_exit_trigger_options';
 
-const ExitTriggerCell: React.FC<ExitTriggerCellProps> = React.memo(({ value, onSave }) => {
+const ExitTriggerCell: React.FC<ExitTriggerCellProps> = React.memo(function ExitTriggerCell({ value, onSave }) {
   const [options, setOptions] = React.useState<string[]>([...EXIT_TRIGGER_OPTIONS]);
 
   React.useEffect(() => {
@@ -2629,7 +2629,7 @@ interface NotesCellProps {
   onSave: (value: string) => void;
 }
 
-const NotesCell: React.FC<NotesCellProps> = React.memo(({ value, onSave }) => {
+const NotesCell: React.FC<NotesCellProps> = React.memo(function NotesCell({ value, onSave }) {
   const {isOpen, onOpenChange, onClose, onOpen} = useDisclosure();
   const [editValue, setEditValue] = React.useState(value);
 
@@ -2653,7 +2653,7 @@ const NotesCell: React.FC<NotesCellProps> = React.memo(({ value, onSave }) => {
   return (
     <Popover placement="bottom-start" isOpen={isOpen} onOpenChange={onOpenChange}>
       <PopoverTrigger>
-        <div 
+        <div
           onClick={onOpen}
           className="p-2 text-sm rounded-md cursor-pointer hover:bg-default-100 dark:hover:bg-default-900/40 transition-colors w-full max-w-[300px]"
         >

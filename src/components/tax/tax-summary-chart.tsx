@@ -12,7 +12,7 @@ import {
   ReferenceLine
 } from "recharts";
 import { useTrades } from "../../hooks/use-trades";
-import { usePortfolio } from "../../utils/PortfolioContext";
+import { useTruePortfolioWithTrades } from "../../hooks/use-true-portfolio-with-trades";
 
 function getMonthShort(dateStr: string) {
   const d = new Date(dateStr);
@@ -34,7 +34,7 @@ interface TaxSummaryChartProps {
 
 export const TaxSummaryChart: React.FC<TaxSummaryChartProps> = ({ taxesByMonth }) => {
   const { trades } = useTrades();
-  const { getPortfolioSize } = usePortfolio();
+  const { getPortfolioSize } = useTruePortfolioWithTrades(trades);
   
   // Group trades by month
   const monthlyMap: Record<string, { grossPL: number, year: number }> = {};

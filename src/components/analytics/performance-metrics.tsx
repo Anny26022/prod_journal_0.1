@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { metricVariants, listItemVariants } from "../../utils/animations";
 import { Trade } from "../../types/trade";
 import { calcOpenHeat, calcWeightedRewardRisk } from "../../utils/tradeCalculations";
-import { usePortfolio } from "../../utils/PortfolioContext";
+import { useTruePortfolioWithTrades } from "../../hooks/use-true-portfolio-with-trades";
 
 interface MetricProps {
   label: string;
@@ -152,7 +152,7 @@ interface PerformanceMetricsProps {
 }
 
 export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ trades, isEditing = false }) => {
-  const { portfolioSize, getPortfolioSize } = usePortfolio();
+  const { portfolioSize, getPortfolioSize } = useTruePortfolioWithTrades(trades);
   // Calculate metrics from trades
   const totalTrades = trades.length;
   const winTrades = trades.filter(t => t.plRs > 0);

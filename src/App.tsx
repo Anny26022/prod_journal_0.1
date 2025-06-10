@@ -9,7 +9,8 @@ import { TaxAnalytics } from "./components/tax-analytics";
 import { MonthlyPerformanceTable } from "./pages/monthly-performance";
 import { ThemeSwitcher } from "./components/theme-switcher";
 import { useTheme } from "@heroui/use-theme";
-import { PortfolioProvider } from "./utils/PortfolioContext";
+import { TruePortfolioProvider } from "./utils/TruePortfolioContext";
+import { TruePortfolioSetupManager } from "./components/TruePortfolioSetupManager";
 import { ProfileSettingsModal } from "./components/ProfileSettingsModal";
 import { GlobalFilterProvider, useGlobalFilter } from "./context/GlobalFilterContext";
 import { GlobalFilterBar } from "./components/GlobalFilterBar";
@@ -25,6 +26,7 @@ export default function App() {
   const [isProfileOpen, setIsProfileOpen] = React.useState(false);
   const [userName, setUserName] = React.useState('Aniket Mahato');
   const [loadingPrefs, setLoadingPrefs] = React.useState(true);
+
 
   const mainContentRef = useRef<HTMLElement>(null);
   const [isMainContentFullscreen, setIsMainContentFullscreen] = useState(false);
@@ -112,7 +114,7 @@ export default function App() {
   }
 
   return (
-    <PortfolioProvider>
+    <TruePortfolioProvider>
       <GlobalFilterProvider>
         <div className="min-h-screen bg-background font-sans antialiased">
           {/* Navigation */}
@@ -277,8 +279,10 @@ export default function App() {
             userName={userName}
             setUserName={setUserName}
           />
+
+          <TruePortfolioSetupManager />
         </div>
       </GlobalFilterProvider>
-    </PortfolioProvider>
+    </TruePortfolioProvider>
   );
 }

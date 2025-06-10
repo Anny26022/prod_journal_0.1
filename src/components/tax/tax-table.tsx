@@ -13,7 +13,7 @@ import {
 import { Icon } from "@iconify/react";
 import { motion } from "framer-motion";
 import { Trade } from "../../types/trade";
-import { usePortfolio } from "../../utils/PortfolioContext";
+import { useTruePortfolioWithTrades } from "../../hooks/use-true-portfolio-with-trades";
 
 interface TaxTableProps {
   trades: Trade[];
@@ -208,7 +208,7 @@ const taxData: TaxData[] = [
 ];
 
 export const TaxTable: React.FC<TaxTableProps> = ({ trades = [], taxesByMonth, setTaxesByMonth }) => {
-  const { portfolioSize, getPortfolioSize } = usePortfolio();
+  const { portfolioSize, getPortfolioSize } = useTruePortfolioWithTrades(trades);
   const [editingCell, setEditingCell] = useState<{ month: string; value: string } | null>(null);
 
   // Group trades by month
@@ -263,28 +263,41 @@ export const TaxTable: React.FC<TaxTableProps> = ({ trades = [], taxesByMonth, s
     }
   };
 
+  // Helper function to convert full month name to short month name
+  const getShortMonthName = (fullMonth: string): string => {
+    const monthMap: Record<string, string> = {
+      "January": "Jan", "February": "Feb", "March": "Mar", "April": "Apr",
+      "May": "May", "June": "Jun", "July": "Jul", "August": "Aug",
+      "September": "Sep", "October": "Oct", "November": "Nov", "December": "Dec"
+    };
+    return monthMap[fullMonth] || fullMonth;
+  };
+
   const tableData = monthOrder.map(month => {
     const monthTrades = monthlyMap[month] || [];
     const totalTrades = monthTrades.length;
     const winTrades = monthTrades.filter(t => t.plRs > 0);
     const lossTrades = monthTrades.filter(t => t.plRs < 0);
     const winRate = totalTrades > 0 ? (winTrades.length / totalTrades) * 100 : 0;
-    
+
     // Handle average calculations with N/A
-    const avgProfit = winTrades.length > 0 
+    const avgProfit = winTrades.length > 0
       ? (winTrades.reduce((sum, t) => sum + (t.plRs || 0), 0) / winTrades.length).toFixed(2)
       : "N/A";
-      
-    const avgLoss = lossTrades.length > 0 
+
+    const avgLoss = lossTrades.length > 0
       ? (lossTrades.reduce((sum, t) => sum + (t.plRs || 0), 0) / lossTrades.length).toFixed(2)
       : "N/A";
-      
+
     const grossPL = monthTrades.reduce((sum, t) => sum + (t.plRs || 0), 0);
     const taxes = taxesByMonth[month] ?? 0;
     const netPL = grossPL - taxes;
     const taxPercent = grossPL !== 0 ? (taxes / Math.abs(grossPL)) * 100 : 0;
     const currentYear = new Date().getFullYear();
-    const monthlyPortfolioSize = getPortfolioSize ? getPortfolioSize(month, currentYear) : portfolioSize;
+
+    // Convert full month name to short month name for True Portfolio system
+    const shortMonth = getShortMonthName(month);
+    const monthlyPortfolioSize = getPortfolioSize ? getPortfolioSize(shortMonth, currentYear) : portfolioSize;
     
     const grossPFImpact = monthlyPortfolioSize > 0 ? (grossPL / monthlyPortfolioSize) * 100 : 0;
     const netPFImpact = monthlyPortfolioSize > 0 ? ((grossPL - taxes) / monthlyPortfolioSize) * 100 : 0;

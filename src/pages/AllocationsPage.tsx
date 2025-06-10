@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Card, CardBody, CardHeader, Divider, Table, TableBody, TableCell, TableColumn, TableHeader, TableRow } from "@heroui/react";
 import { useTrades } from '../hooks/use-trades';
-import { usePortfolio } from '../utils/PortfolioContext';
+import { useTruePortfolioWithTrades } from '../hooks/use-true-portfolio-with-trades';
 import { Icon } from '@iconify/react';
 
 // Assuming Trade type is available from useTrades or a common types file
@@ -18,7 +18,7 @@ interface Trade {
 
 const AllocationsPage: React.FC = () => {
     const { trades, isLoading } = useTrades();
-    const { portfolioSize } = usePortfolio();
+    const { portfolioSize } = useTruePortfolioWithTrades(trades);
 
     // Calculate and sort top allocations
     const topAllocations = useMemo(() => {

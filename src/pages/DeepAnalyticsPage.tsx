@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Card, CardBody, CardHeader, Divider, Table, TableBody, TableCell, TableColumn, TableHeader, TableRow, Tooltip } from "@heroui/react";
 import { useTrades } from '../hooks/use-trades';
-import { usePortfolio } from '../utils/PortfolioContext';
+import { useTruePortfolioWithTrades } from '../hooks/use-true-portfolio-with-trades';
 import { Icon } from '@iconify/react';
 import { motion } from "framer-motion"; // Import motion for StatsCard animation
 import SetupFrequencyChart from '../components/analytics/SetupFrequencyChart'; // Import the new chart component
@@ -32,7 +32,7 @@ interface Trade {
 
 const DeepAnalyticsPage: React.FC = () => { // Renamed component
     const { trades, isLoading } = useTrades();
-    const { portfolioSize } = usePortfolio();
+    const { portfolioSize } = useTruePortfolioWithTrades(trades);
     const { filter } = useGlobalFilter();
     const [mappingLoaded, setMappingLoaded] = React.useState(false);
 
